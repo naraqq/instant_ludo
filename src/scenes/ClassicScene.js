@@ -1454,75 +1454,170 @@ export class ClassicScene extends UIScene {
     ;[view, token, sprite].forEach(target => this.tweens.killTweensOf(target))
     token.setPosition(0, 0).setAngle(0).setScale(1)
     sprite.setScale(56 / sprite.height)
+
     const points = [{ x: view.x, y: view.y }]
     if (from === -1) points.push(this.getPixelFor(pawn.color, 0))
     else for (let step = from + 1; step <= to; step++) points.push(this.getPixelFor(pawn.color, step))
     const count = points.length - 1
-    const destination = points[points.length - 1]
-    const startScale = view.getData('stackScale') ?? 1
+    const dest = points[count]
     const restingDepth = 20
-    view.setDepth(40).setAlpha(1)
+    view.setDepth(40).setAlpha(1).setScale(1)
+
     const finish = () => {
-      view.setPosition(destination.x, destination.y).setScale(1).setDepth(restingDepth)
+      view.setPosition(dest.x, dest.y).setScale(1).setDepth(restingDepth)
       token.setPosition(0, 0).setAngle(0).setScale(1)
       onComplete?.()
     }
     if (!count || prefersReducedMotion) {
-      // Short, direct motion without tilt, trails or a bounce.
       this.tweens.add({
-        targets: view, x: destination.x, y: destination.y,
-        duration: dur(180), ease: EASE.out, onComplete: finish,
+        targets: view, x: dest.x, y: dest.y,
+        duration: dur(150), ease: EASE.out, onComplete: finish,
       })
       return
     }
+
+    // Punchy per-tile hops sell a pawn breaking out of its yard or nudging a
+    // single square; longer journeys read better as one continuous glide.
+    const leaving = from === -1
+    if (leaving || count === 1) {
+      this.hopPawn(view, token, points, count, leaving, dest, pawn.color, finish)
+    } else {
+      this.glidePawn(view, token, points, count, dest, pawn.color, finish)
+    }
+  }
+
+  // One smooth, eased journey through every tile - no per-square braking.
+  glidePawn(view, token, points, count, dest, color, finish) {
+    const startScale = view.getData('stackScale') ?? 1
     const shadow = this.add.ellipse(view.x, view.y + 19, 30, 9, 0x10142b, .2).setDepth(19)
-    const marker = this.add.ellipse(destination.x, destination.y + 17, 32, 12, 0xffffff, 0)
-      .setStrokeStyle(2, COLOR_LIGHT[pawn.color], .65).setDepth(19)
+    const marker = this.add.ellipse(dest.x, dest.y + 17, 32, 12, 0xffffff, 0)
+      .setStrokeStyle(2, COLOR_LIGHT[color], .65).setDepth(19)
     const motion = { progress: 0 }
     let reached = 0
     this.tweens.add({
       targets: motion, progress: 1,
-      duration: from === -1 ? 420 : Math.min(900, 200 + count * 65),
+      duration: dur(Math.min(900, 200 + count * 65)),
       ease: 'Sine.easeInOut',
       onUpdate: () => {
         const sample = samplePawnPath(points, motion.progress)
         const lift = Math.sin(motion.progress * Math.PI)
         view.setPosition(sample.x, sample.y)
           .setScale(startScale + (1 - startScale) * Math.min(1, motion.progress * 5))
-        // A low glide with a restrained stride and directional lean.
         token.setY(-lift * (4 + Math.sin(sample.fraction * Math.PI) * 2))
           .setAngle(sample.dx * 7 * lift)
           .setScale(1 - Math.abs(sample.dy) * .025 * lift, 1 + .035 * lift)
         shadow.setPosition(sample.x, sample.y + 19).setScale(1 - lift * .15).setAlpha(.2 - lift * .07)
         while (reached < sample.reached) {
           reached++
-          sfx.hop()
+          sfx.hop(reached - 1)
           if (reached < count) {
             const point = points[reached]
-            const trail = this.add.ellipse(point.x, point.y + 17, 19, 7, COLOR_HEX[pawn.color], .28).setDepth(18)
+            const trail = this.add.ellipse(point.x, point.y + 17, 19, 7, COLOR_HEX[color], .28).setDepth(18)
             this.tweens.add({
-              targets: trail, alpha: 0, scale: .45, duration: 260,
+              targets: trail, alpha: 0, scale: .45, duration: dur(260),
               onComplete: () => trail.destroy(),
             })
           }
         }
       },
       onComplete: () => {
-        view.setPosition(destination.x, destination.y).setScale(1)
+        view.setPosition(dest.x, dest.y).setScale(1)
         shadow.destroy()
         this.tweens.add({
-          targets: marker, scale: 1.6, alpha: 0, duration: 220,
+          targets: marker, scale: 1.6, alpha: 0, duration: dur(220),
           ease: EASE.out, onComplete: () => marker.destroy(),
         })
-        // Resolve the move only after the feet settle, avoiding a competing
-        // stack-reflow animation during landing or rune collection.
         token.setY(0).setAngle(0).setScale(1.06, .92)
         this.tweens.add({
           targets: token, scaleX: 1, scaleY: 1,
-          duration: 110, ease: 'Sine.easeOut', onComplete: finish,
+          duration: dur(110), ease: 'Sine.easeOut', onComplete: finish,
         })
       },
     })
+  }
+
+  hopPawn(view, token, points, count, leaving, dest, color, finish) {
+    // the pawn "picks up" out of its stack
+    this.tweens.add({ targets: view, scale: 1, duration: dur(90), ease: EASE.pop })
+
+    // long paths hop a bit faster and lower so a six doesn't drag
+    const hopDur = dur(leaving ? 300 : Phaser.Math.Clamp(190 - count * 8, 116, 190))
+    const arc = leaving ? 50 : Phaser.Math.Clamp(36 - count * 1.6, 20, 36)
+    const shadow = this.add.ellipse(view.x, view.y + 18, 30, 9, 0x0a0d20, 0.3).setDepth(19)
+
+    const hop = (i) => {
+      if (i >= count) {
+        shadow.destroy()
+        this.pawnLand(view, token, dest, color, true)
+        this.time.delayedCall(dur(90), finish)
+        return
+      }
+      const a = points[i]
+      const b = points[i + 1]
+      const lean = Math.sign(b.x - a.x) * 11 + Math.sign(b.y - a.y) * 4
+      const st = { t: 0 }
+      // quick anticipation crouch, then the arc
+      this.tweens.add({
+        targets: token, scaleX: 1.18, scaleY: 0.8,
+        duration: dur(leaving ? 60 : 46), ease: 'Quad.easeOut',
+        onComplete: () => {
+          this.tweens.add({
+            targets: st, t: 1, duration: hopDur, ease: 'Sine.easeInOut',
+            onUpdate: () => {
+              const t = st.t
+              const lift = Math.sin(t * Math.PI)
+              view.setPosition(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+              token.setY(-arc * lift * lift ** 0.15) // slightly front-loaded arc
+                .setAngle(lean * lift * (1 - t * 0.35))
+                .setScale(1 - 0.16 * lift + 0.06 * t, 1 + 0.24 * lift - 0.06 * t)
+              shadow.setPosition(view.x, view.y + 18)
+                .setScale(1 - lift * 0.45, 1 - lift * 0.6)
+                .setAlpha(0.3 - lift * 0.2)
+            },
+            onComplete: () => {
+              sfx.hop?.(i)
+              this.pawnLand(view, token, b, color, false)
+              this.time.delayedCall(dur(leaving ? 45 : 22), () => hop(i + 1))
+            },
+          })
+        },
+      })
+    }
+    hop(0)
+  }
+
+  // impact on landing a tile: squash + ground ring + a puff of dust
+  pawnLand(view, token, at, color, final) {
+    this.tweens.killTweensOf(token)
+    token.setPosition(0, 0).setAngle(0).setScale(final ? 1.32 : 1.22, final ? 0.68 : 0.8)
+    this.tweens.add({
+      targets: token, scaleX: 1, scaleY: 1,
+      duration: dur(final ? 260 : 130),
+      ease: final ? EASE.pop : 'Back.easeOut',
+    })
+    const ring = this.add.ellipse(at.x, at.y + 16, 18, 7, 0xffffff, 0)
+      .setStrokeStyle(2.5, COLOR_LIGHT[color], 0.75).setDepth(19)
+    this.tweens.add({
+      targets: ring, scaleX: final ? 3.2 : 2, scaleY: final ? 3.2 : 2, alpha: 0,
+      duration: dur(final ? 340 : 210), ease: EASE.out,
+      onComplete: () => ring.destroy(),
+    })
+    const puffs = final ? 6 : 2
+    for (let k = 0; k < puffs; k++) {
+      const puff = this.add.circle(
+        at.x + Phaser.Math.Between(-5, 5), at.y + 15,
+        Phaser.Math.Between(2, 4), 0xdfe4f2, 0.55
+      ).setDepth(18)
+      this.tweens.add({
+        targets: puff,
+        x: puff.x + Phaser.Math.Between(-18, 18),
+        y: puff.y - Phaser.Math.Between(1, 9),
+        alpha: 0, scale: 0.2,
+        duration: dur(Phaser.Math.Between(200, 300)), ease: EASE.out,
+        onComplete: () => puff.destroy(),
+      })
+    }
+    if (final) this.cameras.main.shake(dur(100), 0.0016)
   }
 
   positionPawn(pawn, animate) {

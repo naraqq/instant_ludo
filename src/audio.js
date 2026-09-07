@@ -62,7 +62,10 @@ class AudioManager {
     this.tone(340 + value * 30, { dur: 0.14, type: 'triangle', gain: 0.14 })
     this.tone(180, { dur: 0.1, type: 'sine', gain: 0.1, delay: 0.02 })
   }
-  hop() { this.tone(660, { dur: 0.05, type: 'sine', gain: 0.06 }) }
+  hop(step = 0) {
+    // pitch climbs a little with each successive hop of a move
+    this.tone(540 + Math.min(step, 6) * 32, { dur: 0.055, type: 'sine', gain: 0.07 })
+  }
   extraRoll() {
     ;[660, 880, 1100].forEach((frequency, i) =>
       this.tone(frequency, { dur: 0.12, type: 'triangle', gain: 0.08, delay: i * 0.07 })

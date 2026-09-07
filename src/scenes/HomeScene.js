@@ -56,9 +56,6 @@ export class HomeScene extends UIScene {
       g.fillStyle(0x7762d9, .016)
       g.fillCircle(W / 2, 410, 100 + i * 38)
     }
-    g.lineStyle(1, 0xffffff, .035)
-    g.strokeCircle(W / 2, 438, 268)
-    g.strokeCircle(W / 2, 438, 230)
     ELEMENTS.forEach(({ color }, i) => {
       g.fillStyle(color, .75)
       g.fillCircle(290 + i * 46, 1232, 3)
@@ -67,7 +64,7 @@ export class HomeScene extends UIScene {
 
   createTopPanel() {
     this.topPanel = this.add.container(W / 2, 66).setDepth(6)
-    this.topPanel.add(this.add.circle(-290, 0, 29, 0x283654).setStrokeStyle(2, COLOR_HEX.blue))
+    this.topPanel.add(this.add.circle(-290, 0, 29, 0x283654))
     this.topPanel.add(this.add.image(-290, 24, 'hero-water-sm').setOrigin(.5, 1).setScale(57 / 120))
     this.topPanel.add(this.add.text(-246, -14, t('home.level', { n: store.level }), {
       fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#f5f7fc', fontStyle: 'bold',
@@ -78,9 +75,9 @@ export class HomeScene extends UIScene {
     this.topPanel.add(this.add.text(-94, 19, `${Math.round(store.xp)}/${xpForLevel(store.level)}`, {
       fontFamily: 'Verdana, sans-serif', fontSize: 10, color: '#a6a7bf',
     }).setOrigin(0, .5))
-    this.makeRoundedRectTexture('home-wallet-v2', 194, 56, 0x2d2946, 0x26223e, 20, 0x46405e)
-    this.topPanel.add(this.add.image(226, 0, 'home-wallet-v2'))
-    this.topPanel.add(this.add.circle(157, 0, 14, COLOR_HEX.yellow).setStrokeStyle(2, 0xffdf88))
+    this.makeRoundedRectTexture('home-wallet-v3', 194, 56, 0x2d2946, 0x26223e, 20)
+    this.topPanel.add(this.add.image(226, 0, 'home-wallet-v3'))
+    this.topPanel.add(this.add.circle(157, 0, 14, COLOR_HEX.yellow))
     this.topPanel.add(this.add.text(157, -1, '★', { fontSize: 13, color: '#87540d' }).setOrigin(.5))
     this.coinLabel = this.add.text(182, 0, store.coins.toLocaleString(), {
       fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#ffe4a1', fontStyle: 'bold',
@@ -171,12 +168,12 @@ export class HomeScene extends UIScene {
     const y = 674
     const w = 648
     const h = 94
-    this.makeRoundedRectTexture('home-play-v2', w, h, 0x22c48d, COLOR_HEX.green, 24, 0x64dfad)
+    this.makeRoundedRectTexture('home-play-v3', w, h, 0x22c48d, COLOR_HEX.green, 24)
     this.playBtn = this.add.container(W / 2, y).setDepth(8).setData('baseScale', 1)
     const shadow = this.add.graphics()
     shadow.fillStyle(0x071d22, .45).fillRoundedRect(-w / 2, -h / 2 + 8, w, h, 24)
     this.playBtn.add(shadow)
-    this.playBtn.add(this.add.image(0, 0, 'home-play-v2'))
+    this.playBtn.add(this.add.image(0, 0, 'home-play-v3'))
     const icon = this.add.graphics().setPosition(-263, 0).setScale(.6)
     drawRestingDice(icon, 6)
     this.playBtn.add(icon)
@@ -190,10 +187,10 @@ export class HomeScene extends UIScene {
   createSecondaryRow() {
     const y = 784
     const w = 314
-    this.makeRoundedRectTexture('home-secondary-v2', w, 78, 0x302b4a, 0x2a2543, 20, 0x49415f)
+    this.makeRoundedRectTexture('home-secondary-v3', w, 78, 0x302b4a, 0x2a2543, 20)
     const make = (x, icon, label, onClick) => {
       const c = this.add.container(x, y).setDepth(7).setData('baseScale', 1)
-      c.add(this.add.image(0, 0, 'home-secondary-v2'))
+      c.add(this.add.image(0, 0, 'home-secondary-v3'))
       c.add(this.add.text(-w / 2 + 38, 0, icon, { fontFamily: 'Arial', fontSize: 25, color: '#a99cdb' }).setOrigin(.5))
       c.add(this.add.text(-w / 2 + 72, 0, label, {
         fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#f0edf8', fontStyle: 'bold',
@@ -211,11 +208,11 @@ export class HomeScene extends UIScene {
   createDailyStrip() {
     const y = 894
     const ready = store.freeCoinsReady()
-    this.makeRoundedRectTexture('home-daily-v2', 648, 94, 0x342e44, 0x30283e, 22, 0x65533f)
+    this.makeRoundedRectTexture('home-daily-v3', 648, 94, 0x342e44, 0x30283e, 22)
     this.dailyStrip = this.add.container(W / 2, y).setDepth(7).setData('baseScale', 1)
-    this.dailyStrip.add(this.add.image(0, 0, 'home-daily-v2'))
+    this.dailyStrip.add(this.add.image(0, 0, 'home-daily-v3'))
     this.dailyStrip.add(this.add.circle(-271, 0, 24, 0x5b4535))
-    this.dailyStrip.add(this.add.circle(-271, 0, 14, COLOR_HEX.yellow).setStrokeStyle(2, 0xffdf88))
+    this.dailyStrip.add(this.add.circle(-271, 0, 14, COLOR_HEX.yellow))
     this.dailyStrip.add(this.add.text(-271, -1, '★', { fontSize: 14, color: '#87540d' }).setOrigin(.5))
     this.dailyStrip.add(this.add.text(-230, -16, t('home.dailyTitle'), {
       fontFamily: 'Verdana, sans-serif', fontSize: 17, fontStyle: 'bold', color: '#fff0cd',
@@ -264,7 +261,6 @@ export class HomeScene extends UIScene {
       const x = -246 + i * 164
       const panel = this.add.graphics()
       panel.fillStyle(color, .08).fillRoundedRect(x - 77, 33, 154, 133, 18)
-      panel.lineStyle(1, color, .28).strokeRoundedRect(x - 77, 33, 154, 133, 18)
       this.legend.add(panel)
       this.legend.add(this.add.image(x, 80, `rune-${key}`).setScale(62 / 240))
       this.legend.add(this.add.text(x, 128, t(powers[i]), {
