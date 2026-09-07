@@ -1,0 +1,92 @@
+// Tiny synth SFX bank - no audio assets, everything is generated with an
+// OscillatorNode so the bundle stays asset-free. Respects the persisted
+// sound/haptics settings from the store.
+
+import { store } from './store.js'
+
+class AudioManager {
+  constructor() {
+    this.ctx = null
+  }
+
+  // Must be called from inside a user gesture (pointerdown) at least once so
+  // the browser lets the context start.
+  unlock() {
+    if (!this.ctx) {
+      const Ctor = window.AudioContext || window.webkitAudioContext
+      if (!Ctor) return
+      this.ctx = new Ctor()
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume()
+  }
+
+  get on() {
+    return store.sound && !!this.ctx
+  }
+
+  tone(freq, { dur = 0.12, type = 'sine', gain = 0.16, slideTo = null, delay = 0 } = {}) {
+    if (!this.on) return
+    const t0 = this.ctx.currentTime + delay
+    const osc = this.ctx.createOscillator()
+    const amp = this.ctx.createGain()
+    osc.type = type
+    osc.frequency.setValueAtTime(freq, t0)
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur)
+    amp.gain.setValueAtTime(0.0001, t0)
+    amp.gain.exponentialRampToValueAtTime(gain, t0 + 0.012)
+    amp.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+    osc.connect(amp).connect(this.ctx.destination)
+    osc.start(t0)
+    osc.stop(t0 + dur + 0.02)
+  }
+
+  noise({ dur = 0.2, gain = 0.2 } = {}) {
+    if (!this.on) return
+    const t0 = this.ctx.currentTime
+    const frames = Math.floor(this.ctx.sampleRate * dur)
+    const buffer = this.ctx.createBuffer(1, frames, this.ctx.sampleRate)
+    const chan = buffer.getChannelData(0)
+    for (let i = 0; i < frames; i++) chan[i] = (Math.random() * 2 - 1) * (1 - i / frames)
+    const src = this.ctx.createBufferSource()
+    const amp = this.ctx.createGain()
+    src.buffer = buffer
+    amp.gain.setValueAtTime(gain, t0)
+    amp.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+    src.connect(amp).connect(this.ctx.destination)
+    src.start(t0)
+  }
+
+  tap() { this.tone(520, { dur: 0.07, type: 'triangle', gain: 0.1 }) }
+  roll() { this.tone(180, { dur: 0.28, type: 'square', gain: 0.08, slideTo: 90 }) }
+  land(value) {
+    this.tone(340 + value * 30, { dur: 0.14, type: 'triangle', gain: 0.14 })
+    this.tone(180, { dur: 0.1, type: 'sine', gain: 0.1, delay: 0.02 })
+  }
+  hop() { this.tone(660, { dur: 0.05, type: 'sine', gain: 0.06 }) }
+  rune() {
+    this.tone(880, { dur: 0.1, type: 'triangle', gain: 0.12 })
+    this.tone(1320, { dur: 0.12, type: 'triangle', gain: 0.1, delay: 0.06 })
+  }
+  power() { this.tone(220, { dur: 0.3, type: 'sawtooth', gain: 0.12, slideTo: 780 }) }
+  capture() {
+    this.noise({ dur: 0.22, gain: 0.22 })
+    this.tone(140, { dur: 0.22, type: 'square', gain: 0.14, slideTo: 60 })
+  }
+  shield() { this.tone(300, { dur: 0.35, type: 'sine', gain: 0.1, slideTo: 620 }) }
+  win() {
+    ;[523, 659, 784, 1046].forEach((f, i) =>
+      this.tone(f, { dur: 0.3, type: 'triangle', gain: 0.16, delay: i * 0.12 })
+    )
+  }
+  lose() {
+    ;[440, 349, 262].forEach((f, i) =>
+      this.tone(f, { dur: 0.3, type: 'sine', gain: 0.14, delay: i * 0.14 })
+    )
+  }
+
+  buzz(ms) {
+    if (store.haptics && navigator.vibrate) navigator.vibrate(ms)
+  }
+}
+
+export const sfx = new AudioManager()

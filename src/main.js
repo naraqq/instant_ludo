@@ -3,6 +3,7 @@ import Phaser from 'phaser'
 import { HomeScene } from './scenes/HomeScene.js'
 import { ClassicScene } from './scenes/ClassicScene.js'
 import { PowerScene } from './scenes/PowerScene.js'
+import { sfx } from './audio.js'
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -16,6 +17,11 @@ const game = new Phaser.Game({
   },
   scene: [HomeScene, ClassicScene, PowerScene],
 })
+
+// Browsers only let an AudioContext start from inside a user gesture.
+const unlockAudio = () => sfx.unlock()
+window.addEventListener('pointerdown', unlockAudio)
+window.addEventListener('keydown', unlockAudio)
 
 if (import.meta.env.DEV) {
   window.__PHASER_GAME__ = game

@@ -1,13 +1,18 @@
 import Phaser from 'phaser'
 import { W, H, MARGIN, CONTENT_W } from '../config.js'
 import { UIScene } from '../ui/UIScene.js'
+import { store, xpForLevel } from '../store.js'
+import { sfx } from '../audio.js'
+
+const FREE_COINS_AMOUNT = 5000
 
 export class HomeScene extends UIScene {
   constructor() {
     super('Home')
-    this.coins = 12750
-    this.gems = 390
   }
+
+  get coins() { return store.coins }
+  get gems() { return store.gems }
 
   preload() {
     this.makeBackgroundTexture('bg-home', '#241a4a', '#8a4fc4')
@@ -77,9 +82,15 @@ export class HomeScene extends UIScene {
 
     this.makeRoundedRectTexture('level-badge', 66, 26, 0x7a1f3d, 0x7a1f3d, 13, 0xffd54d)
     this.add.image(80, cy + 46, 'level-badge')
-    this.add.text(80, cy + 46, 'Lv.39', {
+    this.add.text(80, cy + 46, `Lv.${store.level}`, {
       fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5)
+
+    // thin XP progress bar under the level badge
+    const xpW = 66
+    const xpPct = Phaser.Math.Clamp(store.xp / xpForLevel(store.level), 0, 1)
+    this.add.rectangle(80, cy + 63, xpW, 5, 0x0c1330, 0.9).setOrigin(0.5)
+    this.add.rectangle(80 - xpW / 2, cy + 63, xpW * xpPct, 5, 0x7cffb2).setOrigin(0, 0.5)
 
     const coinPill = this.createTopPill(245, cy, 210, '🪙', () => this.formatCoins(this.coins), '#ffe27a')
     this.coinLabel = coinPill.amountText
@@ -99,7 +110,7 @@ export class HomeScene extends UIScene {
     const settingsZone = this.makeHitZone(636, cy, 52, 52)
     const settings = this.add.circle(636, cy, 26, 0x223257).setStrokeStyle(2, 0x3a4a78)
     this.add.text(636, cy, '⚙️', { fontSize: 22 }).setOrigin(0.5)
-    this.addPressFeedback(settingsZone, settings, () => this.showToast('Settings — coming soon'))
+    this.addPressFeedback(settingsZone, settings, () => this.openSettings())
   }
 
   createTopPill(cx, cy, w, icon, amountFn, color) {
@@ -118,8 +129,8 @@ export class HomeScene extends UIScene {
   }
 
   bumpCoins(amount) {
-    this.coins += amount
-    this.coinLabel.setText(this.formatCoins(this.coins))
+    store.addCoins(amount)
+    this.coinLabel.setText(this.formatCoins(store.coins))
     this.tweens.add({
       targets: this.coinLabel,
       scale: { from: 1.4, to: 1 },
@@ -224,7 +235,7 @@ export class HomeScene extends UIScene {
         ]
         offsets.forEach(([tex, ox, oy]) => c.add(this.add.image(ox, oy, tex).setScale(1.4)))
       },
-      onClick: () => this.goTo('Classic'),
+      onClick: () => this.openGameSetup(),
     })
   }
 
@@ -271,7 +282,7 @@ export class HomeScene extends UIScene {
     const configs = [
       { key: 'minimap', gradientTop: 0x35e0c8, gradientBottom: 0x12a898, icon: '🗺️', label: 'Mini Map', ribbon: { text: 'NEW', color: 0x34c759 } },
       { key: 'friends', gradientTop: 0x5fa8ff, gradientBottom: 0x3a74e0, icon: '👫', label: 'Friends' },
-      { key: 'computer', gradientTop: 0xb48bff, gradientBottom: 0x8a5cf0, icon: '🤖', label: 'Computer & Local', onClick: () => this.goTo('Classic') },
+      { key: 'computer', gradientTop: 0xb48bff, gradientBottom: 0x8a5cf0, icon: '🤖', label: 'Computer & Local' },
     ]
 
     configs.forEach((cfg, i) => {
@@ -306,7 +317,7 @@ export class HomeScene extends UIScene {
     const zone = this.makeHitZone(cx, cy, w, h)
     this.addPressFeedback(zone, container, () => {
       if (key === 'computer') {
-        this.goTo('Classic')
+        this.openGameSetup()
         return
       }
       this.showToast(`Opening ${label}...`)
@@ -352,16 +363,25 @@ export class HomeScene extends UIScene {
       onClick: () => this.showToast('Friend request opened'),
     })
 
+    const ready = store.freeCoinsReady()
     this.createBanner(MARGIN + w + 12 + w / 2, cy, w, h, {
-      key: 'banner-coins',
-      gradientTop: 0xffd85e,
-      gradientBottom: 0xffb020,
+      key: `banner-coins-${ready ? 'on' : 'off'}`,
+      gradientTop: ready ? 0xffd85e : 0x8a7f5a,
+      gradientBottom: ready ? 0xffb020 : 0x6a6244,
       icon: '🪙',
-      text: '5000 coins free!',
+      text: ready ? '5000 coins free!' : 'Come back later',
       textColor: '#5a3d00',
       onClick: () => {
-        this.bumpCoins(5000)
-        this.showToast('+5,000 coins!')
+        if (!store.freeCoinsReady()) {
+          this.showToast('Free coins recharge every 20h')
+          return
+        }
+        store.claimFreeCoins(FREE_COINS_AMOUNT)
+        this.coinLabel.setText(this.formatCoins(store.coins))
+        this.tweens.add({ targets: this.coinLabel, scale: { from: 1.4, to: 1 }, duration: 300, ease: 'Back.easeOut' })
+        this.showToast(`+${FREE_COINS_AMOUNT.toLocaleString()} coins!`)
+        sfx.rune()
+        this.scene.restart()
       },
     })
   }
@@ -425,5 +445,194 @@ export class HomeScene extends UIScene {
 
     const zone = this.makeHitZone(cx, cy, slotW, slotH)
     this.addPressFeedback(zone, container, () => this.showToast(label))
+  }
+
+  // ---------- modal helpers ----------
+
+  buildModal(title, heightPx) {
+    this.destroyModal()
+
+    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.72).setDepth(499)
+    const dimZone = this.add.zone(W / 2, H / 2, W, H).setDepth(499).setInteractive()
+    dimZone.on('pointerup', () => this.closeModal())
+
+    const cardW = CONTENT_W - 6
+    const key = `modal-card-${heightPx}`
+    this.makeRoundedRectTexture(key, cardW, heightPx, 0x2a1f52, 0x150d30, 26, 0x5a49a8)
+    const card = this.add.container(W / 2, H / 2).setDepth(501)
+    card.add(this.add.image(0, 0, key))
+    card.add(this.add.zone(0, 0, cardW, heightPx).setInteractive()) // eat taps on the card body
+    card.add(this.add.text(0, -heightPx / 2 + 40, title, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 23, color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5))
+
+    card.add(this.add.circle(cardW / 2 - 34, -heightPx / 2 + 34, 16, 0x0c1330, 0.7))
+    card.add(this.add.text(cardW / 2 - 34, -heightPx / 2 + 33, '✕', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 16, color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5))
+    const closeZone = this.add.zone(cardW / 2 - 34, -heightPx / 2 + 34, 48, 48).setInteractive({ useHandCursor: true })
+    closeZone.on('pointerup', () => this.closeModal())
+    card.add(closeZone)
+
+    card.setScale(0.85).setAlpha(0)
+    this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 240, ease: 'Back.easeOut' })
+
+    this.modalParts = [dim, dimZone, card]
+    return { card, cardW, cardH: heightPx }
+  }
+
+  destroyModal() {
+    if (!this.modalParts) return
+    this.modalParts.forEach((part) => part.destroy())
+    this.modalParts = null
+  }
+
+  closeModal() {
+    this.destroyModal()
+  }
+
+  modalChip(card, x, y, w, label, selected, onPick) {
+    const key = `chip-${w}-${selected ? 'on' : 'off'}`
+    this.makeRoundedRectTexture(
+      key, w, 46,
+      selected ? 0x6d5ce0 : 0x2c2258,
+      selected ? 0x5647c4 : 0x241d4c,
+      12,
+      selected ? 0xb9adff : 0x40356f
+    )
+    card.add(this.add.image(x, y, key))
+    card.add(this.add.text(x, y, label, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5))
+    const z = this.add.zone(x, y, w, 46).setInteractive({ useHandCursor: true })
+    z.on('pointerup', () => { sfx.tap(); onPick() })
+    card.add(z)
+  }
+
+  modalLabel(card, y, text) {
+    card.add(this.add.text(0, y, text, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#9d8fd6', fontStyle: 'bold',
+    }).setOrigin(0.5))
+  }
+
+  modalButton(card, x, y, w, label, primary, onClick) {
+    const key = `modal-btn-${w}-${primary ? 'p' : 'g'}`
+    this.makeRoundedRectTexture(
+      key, w, 58,
+      primary ? 0x34c759 : 0x3a2c66,
+      primary ? 0x1f9d43 : 0x2a2050,
+      15,
+      primary ? 0x9affc0 : 0x6a5aa8
+    )
+    card.add(this.add.image(x, y, key))
+    card.add(this.add.text(x, y, label, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 18, color: primary ? '#08240f' : '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5))
+    const z = this.add.zone(x, y, w, 58).setInteractive({ useHandCursor: true })
+    z.on('pointerup', () => { sfx.tap(); onClick() })
+    card.add(z)
+  }
+
+  // ---------- new game setup ----------
+
+  openGameSetup(state) {
+    const s = state || { opponents: 3, mode: 'cpu', difficulty: store.difficulty }
+    const cardH = 430
+    const { card } = this.buildModal('NEW GAME', cardH)
+    const T = -cardH / 2
+    const reopen = () => this.openGameSetup({ ...s })
+
+    this.modalLabel(card, T + 84, 'OPPONENTS')
+    ;[1, 2, 3].forEach((n, i) => {
+      this.modalChip(card, -96 + i * 96, T + 118, 80, `${n}`, s.opponents === n, () => {
+        s.opponents = n
+        reopen()
+      })
+    })
+
+    this.modalLabel(card, T + 172, 'PLAY AGAINST')
+    this.modalChip(card, -84, T + 206, 156, 'Computer', s.mode === 'cpu', () => { s.mode = 'cpu'; reopen() })
+    this.modalChip(card, 84, T + 206, 156, 'Local', s.mode === 'local', () => { s.mode = 'local'; reopen() })
+
+    if (s.mode === 'cpu') {
+      this.modalLabel(card, T + 260, 'BOT DIFFICULTY')
+      ;['easy', 'normal', 'hard'].forEach((d, i) => {
+        this.modalChip(card, -116 + i * 116, T + 294, 108, d.toUpperCase(), s.difficulty === d, () => {
+          s.difficulty = d
+          reopen()
+        })
+      })
+    }
+
+    this.modalButton(card, 0, cardH / 2 - 46, 300, 'START MATCH', true, () => {
+      // blue seat (bottom-left, thumb-side) is always "you"
+      const order = ['blue', 'green', 'yellow', 'red']
+      const players = {}
+      order.forEach((c, i) => {
+        if (i === 0) players[c] = 'human'
+        else if (i <= s.opponents) players[c] = s.mode === 'cpu' ? 'ai' : 'human'
+        else players[c] = 'off'
+      })
+      if (s.mode === 'cpu') store.setSetting('difficulty', s.difficulty)
+      this.closeModal()
+      this.goTo('Classic', { players, difficulty: s.difficulty })
+    })
+  }
+
+  // ---------- settings ----------
+
+  openSettings() {
+    const cardH = 486
+    const { card, cardW } = this.buildModal('SETTINGS', cardH)
+    const T = -cardH / 2
+    const rowLabelX = -cardW / 2 + 44
+    const reopen = () => this.openSettings()
+
+    const toggleRow = (y, label, value, onOn, onOff) => {
+      card.add(this.add.text(rowLabelX, y, label, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#e4dbff', fontStyle: 'bold',
+      }).setOrigin(0, 0.5))
+      this.modalChip(card, cardW / 2 - 128, y, 76, 'ON', value, onOn)
+      this.modalChip(card, cardW / 2 - 46, y, 76, 'OFF', !value, onOff)
+    }
+
+    toggleRow(T + 82, 'Sound', store.sound,
+      () => { store.setSetting('sound', true); sfx.tap(); reopen() },
+      () => { store.setSetting('sound', false); reopen() })
+    toggleRow(T + 134, 'Haptics', store.haptics,
+      () => { store.setSetting('haptics', true); sfx.buzz(20); reopen() },
+      () => { store.setSetting('haptics', false); reopen() })
+
+    this.modalLabel(card, T + 190, 'DEFAULT BOT DIFFICULTY')
+    ;['easy', 'normal', 'hard'].forEach((d, i) => {
+      this.modalChip(card, -116 + i * 116, T + 224, 108, d.toUpperCase(), store.difficulty === d, () => {
+        store.setSetting('difficulty', d)
+        reopen()
+      })
+    })
+
+    const st = store.stats
+    const winRate = st.games ? Math.round((st.wins / st.games) * 100) : 0
+    this.makeRoundedRectTexture('settings-stats', cardW - 72, 62, 0x1c1442, 0x160f36, 14, 0x453a7e)
+    card.add(this.add.image(0, T + 300, 'settings-stats'))
+    card.add(this.add.text(0, T + 286, `${st.games} games   ·   ${st.wins} wins   ·   ${winRate}% win rate`, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#d9ccff', fontStyle: 'bold',
+    }).setOrigin(0.5))
+    card.add(this.add.text(0, T + 310, `${st.captures} captures   ·   best streak ${st.bestStreak}`, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#a99cd6',
+    }).setOrigin(0.5))
+
+    this.modalButton(card, 0, cardH / 2 - 108, 300, 'RESET PROGRESS', false, () => {
+      if (this.confirmReset) {
+        store.reset()
+        this.closeModal()
+        this.scene.restart()
+        return
+      }
+      this.confirmReset = true
+      this.showToast('Tap Reset again to confirm')
+      this.time.delayedCall(2500, () => { this.confirmReset = false })
+    })
+    this.modalButton(card, 0, cardH / 2 - 46, 300, 'DONE', true, () => this.closeModal())
   }
 }

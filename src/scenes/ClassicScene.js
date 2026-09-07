@@ -1,76 +1,90 @@
 import Phaser from 'phaser'
 import { W, H, CONTENT_W } from '../config.js'
 import { UIScene } from '../ui/UIScene.js'
+import { sfx } from '../audio.js'
+import { store } from '../store.js'
+import { chooseAiMove, chooseAiPower, bestForcedDice } from '../ai.js'
+import {
+  COLORS,
+  COLOR_HEX,
+  COLOR_DARK,
+  COLOR_LIGHT,
+  PAWN_ASSETS,
+  POWER_TYPES,
+  SAFE_STOPS,
+  START_INDEX,
+  HOME_LANES,
+  YARDS,
+  TRACK,
+} from './board.js'
 
-const TILE = 40
+const TILE = 44
 const BOARD_SIZE = TILE * 15
 const BOARD_X = (W - BOARD_SIZE) / 2
-const BOARD_Y = 250
-const COLORS = ['red', 'green', 'yellow', 'blue']
-const COLOR_HEX = {
-  red: 0xe94a42,
-  green: 0x25bd5c,
-  yellow: 0xf0c433,
-  blue: 0x2f87e8,
+const BOARD_Y = 156
+const BOARD_BOTTOM = BOARD_Y + BOARD_SIZE
+const TURN_SECONDS = 30
+
+const BAR_Y = 1224 // bottom action bar
+
+// Where each player's avatar pod + dice sit, relative to their board corner.
+const POD = {
+  red: { ax: 46, ay: BOARD_Y - 24, dx: BOARD_X + 118, dy: BOARD_Y - 46, dir: 'up' },
+  green: { ax: W - 46, ay: BOARD_Y - 24, dx: BOARD_X + BOARD_SIZE - 118, dy: BOARD_Y - 46, dir: 'up' },
+  blue: { ax: 46, ay: BOARD_BOTTOM + 24, dx: BOARD_X + 118, dy: BOARD_BOTTOM + 50, dir: 'down' },
+  yellow: { ax: W - 46, ay: BOARD_BOTTOM + 24, dx: BOARD_X + BOARD_SIZE - 118, dy: BOARD_BOTTOM + 50, dir: 'down' },
 }
-const COLOR_DARK = {
-  red: 0xad2d2a,
-  green: 0x127a3a,
-  yellow: 0xa97c08,
-  blue: 0x1b57a6,
-}
-const COLOR_LIGHT = {
-  red: 0xff6b60,
-  green: 0x45dd77,
-  yellow: 0xffde55,
-  blue: 0x5aa5ff,
-}
-const PAWN_ASSETS = {
-  red: 'fire',
-  green: 'earth',
-  yellow: 'air',
-  blue: 'water',
-}
-const POWER_TYPES = ['fire', 'water', 'earth', 'air']
-const SAFE_STOPS = new Set([0, 8, 13, 21, 26, 34, 39, 47])
-const START_INDEX = { red: 13, green: 26, yellow: 39, blue: 0 }
-const HOME_LANES = {
-  red: [[1, 7], [2, 7], [3, 7], [4, 7], [5, 7]],
-  green: [[7, 1], [7, 2], [7, 3], [7, 4], [7, 5]],
-  yellow: [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7]],
-  blue: [[7, 13], [7, 12], [7, 11], [7, 10], [7, 9]],
-}
-const YARDS = {
-  red: { box: [0, 0], pawns: [[2, 2], [4, 2], [2, 4], [4, 4]] },
-  green: { box: [9, 0], pawns: [[11, 2], [13, 2], [11, 4], [13, 4]] },
-  yellow: { box: [9, 9], pawns: [[11, 11], [13, 11], [11, 13], [13, 13]] },
-  blue: { box: [0, 9], pawns: [[2, 11], [4, 11], [2, 13], [4, 13]] },
-}
-const TRACK = [
-  [6, 13], [6, 12], [6, 11], [6, 10], [6, 9], [5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8], [0, 7], [0, 6],
-  [1, 6], [2, 6], [3, 6], [4, 6], [5, 6], [6, 5], [6, 4], [6, 3], [6, 2], [6, 1], [6, 0], [7, 0], [8, 0],
-  [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [9, 6], [10, 6], [11, 6], [12, 6], [13, 6], [14, 6], [14, 7], [14, 8],
-  [13, 8], [12, 8], [11, 8], [10, 8], [9, 8], [8, 9], [8, 10], [8, 11], [8, 12], [8, 13], [8, 14], [7, 14], [6, 14],
-]
 
 export class ClassicScene extends UIScene {
   constructor() {
     super('Classic')
-    this.currentPlayer = 0
-    this.diceValue = 0
-    this.rawDiceValue = 0
-    this.forcedDiceValue = null
-    this.doubleNextRoll = false
-    this.extraRollNextTurn = false
-    this.phase = 'roll'
-    this.pawns = []
     this.pawnViews = new Map()
-    this.powerInventory = {}
-    this.powerRunes = []
     this.runeViews = new Map()
     this.activePawnZones = []
     this.shieldedColors = new Set()
     this.shieldExpiresOnOwnRoll = new Set()
+  }
+
+  // data: { players: { red:'human'|'ai'|'off', ... }, difficulty: 'easy'|'normal'|'hard' }
+  init(data) {
+    const players = data?.players
+    if (players) {
+      this.players = { ...players }
+    } else {
+      // No setup passed - default to solo vs three bots.
+      this.players = { blue: 'human', red: 'ai', green: 'ai', yellow: 'ai' }
+    }
+    this.activeColors = COLORS.filter((c) => this.players[c] && this.players[c] !== 'off')
+    if (this.activeColors.length < 2) {
+      this.players = { blue: 'human', red: 'ai', green: 'ai', yellow: 'ai' }
+      this.activeColors = [...COLORS]
+    }
+    // start the rotation on the human seat so you don't wait through three bots
+    const firstHuman = this.activeColors.findIndex((c) => this.players[c] === 'human')
+    if (firstHuman > 0) {
+      this.activeColors = [
+        ...this.activeColors.slice(firstHuman),
+        ...this.activeColors.slice(0, firstHuman),
+      ]
+    }
+    this.difficulty = data?.difficulty || store.difficulty
+    // "You" (and rewards) only exist when playing against bots - pure local
+    // hot-seat games are neutral and unranked.
+    const hasBot = this.activeColors.some((c) => this.players[c] === 'ai')
+    this.youColor = hasBot ? this.activeColors.find((c) => this.players[c] === 'human') || null : null
+    this.lastConfig = { players: this.players, difficulty: this.difficulty }
+  }
+
+  get currentColor() {
+    return this.activeColors[this.currentPlayer]
+  }
+
+  advanceTurn() {
+    this.currentPlayer = (this.currentPlayer + 1) % this.activeColors.length
+  }
+
+  isBot(color) {
+    return this.players[color] === 'ai'
   }
 
   preload() {
@@ -102,71 +116,95 @@ export class ClassicScene extends UIScene {
     this.activePawnZones = []
     this.shieldedColors.clear()
     this.shieldExpiresOnOwnRoll.clear()
+    this.finishOrder = []
+    this.gameOver = false
+    this.captureCounts = Object.fromEntries(COLORS.map((c) => [c, 0]))
+    this.onRollResolved = null
+    this.turnTimer = null
+    this.turnSecondsLeft = TURN_SECONDS
 
     this.add.image(W / 2, H / 2, 'bg-classic')
     this.createBackdrop()
-    this.createTopChrome()
+    this.createTopBar()
     this.createBoard()
     this.createPlayers()
     this.createRuneTextures()
-    this.createDicePanel()
-    this.createBackButton()
+    this.createBottomBar()
     this.createPawnTextures()
     this.createPawns()
     this.createPowerRunes()
     this.reflowPawns(false)
     this.refreshTurnUI()
     this.cameras.main.fadeIn(200, 0, 0, 0)
+    this.time.delayedCall(500, () => this.beginTurn())
   }
 
   createBackdrop() {
     const g = this.add.graphics()
-    g.fillStyle(0x060b22, 0.16)
+    g.fillStyle(0x060b22, 0.18)
     g.fillRect(0, 0, W, H)
-    g.fillStyle(0xffffff, 0.035)
-    g.fillCircle(92, 188, 88)
-    g.fillCircle(644, 830, 126)
-    g.lineStyle(1, 0xffffff, 0.055)
-    for (let y = 206; y < 936; y += 132) {
-      g.lineBetween(56, y, W - 56, y + 26)
-    }
-  }
+    g.fillStyle(0xffffff, 0.03)
+    g.fillCircle(96, 210, 120)
+    g.fillCircle(636, 980, 150)
+    g.fillCircle(120, 1120, 90)
 
-  createTopChrome() {
-    this.makeRoundedRectTexture('classic-title-card', CONTENT_W, 104, 0x342465, 0x251a58, 24, 0xbdeeff)
-    this.add.image(W / 2, 82, 'classic-title-card').setAlpha(0.97)
-    this.add.rectangle(W / 2, 126, CONTENT_W - 52, 1, 0xffffff, 0.14)
-    this.add.text(W / 2, 56, 'CLASSIC', {
-      fontFamily: 'Verdana, sans-serif',
-      fontSize: 36,
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setStroke('#00000045', 4)
-
-    COLORS.forEach((color) => {
-      this.makeRoundedRectTexture(`turn-chip-${color}`, 188, 34, COLOR_HEX[color], COLOR_DARK[color], 7)
+    // faint 4-colour pinwheel crest in the open area below the board
+    const cx = W / 2
+    const cy = (BOARD_BOTTOM + (BAR_Y - 44)) / 2 + 4
+    const r = 118
+    const quads = [
+      [COLOR_HEX.red, 180, 270],
+      [COLOR_HEX.green, 270, 360],
+      [COLOR_HEX.yellow, 0, 90],
+      [COLOR_HEX.blue, 90, 180],
+    ]
+    quads.forEach(([col, a0, a1]) => {
+      const cg = this.add.graphics().setDepth(1)
+      cg.fillStyle(col, 0.06)
+      cg.slice(cx, cy, r, Phaser.Math.DegToRad(a0), Phaser.Math.DegToRad(a1))
+      cg.fillPath()
     })
-    this.turnChip = this.add.container(W / 2, 100)
-    this.turnChipBg = this.add.image(0, 0, 'turn-chip-red')
-    this.statusText = this.add.text(0, 0, '', {
-      fontFamily: 'Verdana, sans-serif',
-      fontSize: 15,
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5)
-    this.turnChip.add([this.turnChipBg, this.statusText])
+    this.add.circle(cx, cy, r, 0xffffff, 0).setStrokeStyle(2, 0xffffff, 0.05).setDepth(1)
   }
 
-  createBackButton() {
-    const zone = this.makeHitZone(60, 62, 58, 58)
-    const btn = this.add.circle(60, 62, 24, 0x0a1729, 0.75)
-    this.add.text(60, 61, '<', {
-      fontFamily: 'Verdana, sans-serif',
-      fontSize: 25,
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5)
-    this.addPressFeedback(zone, btn, () => this.goTo('Home'))
+  // Top strip: back / trophy / share on the left, coin pill on the right.
+  createTopBar() {
+    const y = 46
+    this.makeRoundedRectTexture('topbtn', 50, 50, 0x3b2c78, 0x2a1e5c, 15, 0x6a58b8)
+    const iconBtn = (x, glyph, onTap) => {
+      const img = this.add.image(x, y, 'topbtn').setDepth(6).setAlpha(0.96)
+      this.add.text(x, y - 1, glyph, { fontSize: 22 }).setOrigin(0.5).setDepth(7)
+      const z = this.makeHitZone(x, y, 52, 52)
+      this.addPressFeedback(z, img, () => { sfx.tap(); onTap() })
+    }
+    iconBtn(44, '‹', () => this.goTo('Home'))
+    iconBtn(102, '🏆', () => this.showToast('Leaderboard coming soon'))
+    iconBtn(160, '⤴', () => this.showToast('Invite friends — coming soon'))
+
+    this.makeRoundedRectTexture('coin-pill', 168, 46, 0x2a1e5c, 0x211748, 23, 0x6a58b8)
+    const pillX = W - 44 - 84
+    this.add.image(pillX, y, 'coin-pill').setDepth(6).setAlpha(0.96)
+    this.add.circle(pillX - 60, y, 15, 0xffcf3f).setStrokeStyle(2, 0xffe9a3).setDepth(7)
+    this.add.text(pillX - 60, y - 1, '★', { fontSize: 15, color: '#8a5a00' }).setOrigin(0.5).setDepth(8)
+    this.coinText = this.add.text(pillX - 34, y - 1, store.coins.toLocaleString(), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 18, color: '#ffe27a', fontStyle: 'bold',
+    }).setOrigin(0, 0.5).setDepth(8)
+    const plus = this.add.circle(pillX + 66, y, 17, 0x34c759).setStrokeStyle(2, 0x9affc0).setDepth(7)
+    this.add.text(pillX + 66, y - 2, '+', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 22, color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(8)
+    const pz = this.makeHitZone(pillX + 66, y, 40, 40)
+    this.addPressFeedback(pz, plus, () => this.showToast('Shop — coming soon'))
+
+    // status line lives quietly in the open area below the board
+    const midY = (BOARD_BOTTOM + (BAR_Y - 44)) / 2
+    this.helpText = this.add.text(W / 2, midY - 16, '', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 20, color: '#efe6ff', fontStyle: 'bold',
+      align: 'center', wordWrap: { width: CONTENT_W - 40 },
+    }).setOrigin(0.5).setDepth(8)
+    this.rollHint = this.add.text(W / 2, midY + 16, '', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#9f90d8',
+    }).setOrigin(0.5).setDepth(8)
   }
 
   createBoard() {
@@ -184,7 +222,34 @@ export class ClassicScene extends UIScene {
       cells.forEach(([gx, gy]) => this.drawSquare(g, gx, gy, COLOR_HEX[color], 1, color))
     })
     this.drawCenter(g)
+    this.createHomeLabels()
+  }
 
+  createHomeLabels() {
+    const spots = {
+      red: [3, 0.62],
+      green: [12, 0.62],
+      blue: [3, 14.38],
+      yellow: [12, 14.38],
+    }
+    this.homeLabels = {}
+    Object.entries(spots).forEach(([color, [gx, gy]]) => {
+      if (!this.activeColors.includes(color)) return
+      const { x, y } = this.gridToPixel(gx, gy)
+      const t = this.add.text(x, y, this.playerName(color), {
+        fontFamily: 'Verdana, sans-serif', fontSize: 15, color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(15).setStroke('#00000055', 4)
+      this.homeLabels[color] = t
+    })
+  }
+
+  playerName(color) {
+    if (color === this.youColor) return 'You'
+    if (this.isBot(color)) {
+      const botIdx = this.activeColors.filter((c) => this.isBot(c)).indexOf(color) + 1
+      return `CPU ${botIdx}`
+    }
+    return color[0].toUpperCase() + color.slice(1)
   }
 
   drawYard(g, color) {
@@ -263,136 +328,103 @@ export class ClassicScene extends UIScene {
 
   createPlayers() {
     this.playerBadges = {}
-    this.playerDice = {}
-    const positions = [
-      ['red', 110, 214, 178, 214],
-      ['green', 610, 214, 542, 214],
-      ['blue', 110, 895, 178, 895],
-      ['yellow', 610, 895, 542, 895],
-    ]
-    positions.forEach(([color, x, y, diceX, diceY]) => {
-      const c = this.add.container(x, y)
-      c.add(this.add.circle(4, 7, 28, 0x000000, 0.22))
-      const ring = this.add.circle(0, 0, 30, 0xffffff, 0.12)
+    this.cornerDice = {}
+    const faces = { red: '🔥', green: '🌿', yellow: '💨', blue: '💧' }
+
+    COLORS.forEach((color) => {
+      const pod = POD[color]
+      const c = this.add.container(pod.ax, pod.ay).setDepth(30)
+      c.add(this.add.circle(3, 4, 24, 0x000000, 0.32))
+      const ring = this.add.circle(0, 0, 28, COLOR_HEX[color], 0.001)
       ring.name = 'ring'
       c.add(ring)
-      c.add(this.add.circle(0, 0, 24, COLOR_HEX[color]))
-      c.add(this.add.text(0, 0, color[0].toUpperCase(), {
-        fontFamily: 'Verdana, sans-serif',
-        fontSize: 22,
-        color: '#ffffff',
-        fontStyle: 'bold',
-      }).setOrigin(0.5))
-      c.add(this.add.text(0, 43, color.toUpperCase(), {
-        fontFamily: 'Verdana, sans-serif',
-        fontSize: 12,
-        color: '#ffffff',
-        fontStyle: 'bold',
-      }).setOrigin(0.5))
+      c.add(this.add.circle(0, 0, 23, 0x2a1f56).setStrokeStyle(4, COLOR_HEX[color]))
+      c.add(this.add.text(0, 1, faces[color], { fontSize: 22 }).setOrigin(0.5))
+      const arc = this.add.graphics()
+      arc.name = 'arc'
+      c.add(arc)
+
       this.playerBadges[color] = c
-      this.playerDice[color] = this.createPlayerDice(color, diceX, diceY)
+      this.cornerDice[color] = this.createCornerDice(color)
+      if (!this.activeColors.includes(color)) {
+        c.setVisible(false)
+        this.cornerDice[color].container.setVisible(false)
+      }
     })
   }
 
-  createPlayerDice(color, x, y) {
-    const container = this.add.container(x, y).setDepth(35)
-    this.makeRoundedRectTexture(`player-dice-bg-${color}`, 58, 58, COLOR_LIGHT[color], COLOR_HEX[color], 13)
-    const glow = this.add.circle(0, 0, 34, COLOR_HEX[color], 0)
+  createCornerDice(color) {
+    const pod = POD[color]
+    const container = this.add.container(pod.dx, pod.dy).setDepth(34)
+    this.makeRoundedRectTexture(`dice-well-${color}`, 64, 64, COLOR_HEX[color], COLOR_DARK[color], 15, 0xffffff)
+    const glow = this.add.circle(0, 0, 42, 0xffffff, 0)
     glow.name = 'glow'
-    const shadow = this.add.ellipse(3, 25, 48, 12, 0x000000, 0.22)
-    const bg = this.add.image(0, 0, `player-dice-bg-${color}`).setAlpha(0.96)
-    const face = this.add.image(0, -2, 'dice-1').setScale(0.6)
-    container.add([glow, shadow, bg, face])
-    const zone = this.makeHitZone(x, y, 68, 68)
-    this.addPressFeedback(zone, container, () => this.rollDice())
-    container.setAlpha(0.35)
-    container.setScale(0.9)
+    const shadow = this.add.ellipse(3, 28, 54, 13, 0x000000, 0.3)
+    const well = this.add.image(0, 0, `dice-well-${color}`).setAlpha(0.98)
+    const face = this.add.image(0, -1, 'dice-1').setScale(0.58)
+    container.add([glow, shadow, well, face])
+    container.setVisible(false)
+    const zone = this.makeHitZone(pod.dx, pod.dy, 78, 78)
+    this.addPressFeedback(zone, container, () => {
+      if (!this.isBot(this.currentColor)) this.rollDice()
+    })
     return { container, face, glow }
   }
 
-  createDicePanel() {
-    this.makeRoundedRectTexture('chat-pill', 92, 42, 0x415ec0, 0x31459b, 12)
-    const chat = this.add.container(58, 1236).setDepth(45)
-    chat.add(this.add.image(0, 0, 'chat-pill').setAlpha(0.95))
-    chat.add(this.add.text(0, 0, 'Chat', {
-      fontFamily: 'Verdana, sans-serif',
-      fontSize: 16,
-      color: '#ffffff',
-      fontStyle: 'bold',
+  createBottomBar() {
+    this.makeRoundedRectTexture('bottom-bar', W + 40, 118, 0x271c58, 0x1a1140, 30, 0x4c3d94)
+    this.add.image(W / 2, BAR_Y + 30, 'bottom-bar').setAlpha(0.98).setDepth(38)
+    this.add.rectangle(W / 2, BAR_Y - 26, W - 48, 3, 0xffffff, 0.12).setDepth(39)
+
+    // chat pill (left)
+    this.makeRoundedRectTexture('chat-pill', 108, 46, 0x3d6bd6, 0x2f52ab, 23, 0x7ba0f0)
+    const chat = this.add.container(80, BAR_Y).setDepth(45)
+    chat.add(this.add.image(0, 0, 'chat-pill'))
+    chat.add(this.add.text(-14, 0, '💬', { fontSize: 18 }).setOrigin(0.5))
+    chat.add(this.add.text(8, 0, 'Chat', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5))
-    const chatZone = this.makeHitZone(58, 1236, 92, 42)
+    const chatZone = this.makeHitZone(80, BAR_Y, 112, 50)
     this.addPressFeedback(chatZone, chat, () => this.showToast('Chat coming soon'))
 
-    this.turnDot = this.add.circle(270, 1132, 9, COLOR_HEX.red)
-    this.actionLabel = this.add.text(290, 1120, 'RED TO MOVE', {
-      fontFamily: 'Verdana, sans-serif',
-      fontSize: 11,
-      color: '#bcd7ff',
-      fontStyle: 'bold',
-    }).setOrigin(0, 0.5).setVisible(false)
-    this.rollHint = this.add.text(W / 2, 1194, 'Tap dice to roll', {
-      fontFamily: 'Verdana, sans-serif',
-      fontSize: 15,
-      color: '#d9edff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5)
+    // settings (right)
+    this.makeRoundedRectTexture('bar-btn', 48, 48, 0x3b2c78, 0x2a1e5c, 15, 0x6a58b8)
+    const setImg = this.add.image(W - 56, BAR_Y, 'bar-btn').setDepth(45)
+    this.add.text(W - 56, BAR_Y - 1, '⚙', { fontSize: 20 }).setOrigin(0.5).setDepth(46)
+    const setZone = this.makeHitZone(W - 56, BAR_Y, 52, 52)
+    this.addPressFeedback(setZone, setImg, () => this.showToast('Settings — coming soon'))
 
-    this.diceTray = this.add.container(W / 2, 1142).setDepth(46)
-    this.makeRoundedRectTexture('dice-well', 78, 78, 0x66d970, 0x209f46, 14)
-    this.diceTray.add(this.add.ellipse(4, 33, 72, 15, 0x000000, 0.28))
-    this.diceTray.add(this.add.image(0, 0, 'dice-well').setAlpha(0.98))
-    this.diceFace = this.add.image(0, -2, 'dice-1').setScale(0.76)
-    this.diceTray.add(this.diceFace)
-
-    this.rollButton = this.diceTray
-    this.diceText = this.add.text(0, 0, 'ROLL DICE', {
-      fontFamily: 'Verdana, sans-serif',
-      fontSize: 1,
-      color: '#402800',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setVisible(false)
-    const zone = this.makeHitZone(W / 2, 1142, 84, 84)
-    this.addPressFeedback(zone, this.rollButton, () => this.rollDice())
-
-    this.helpText = this.add.text(W / 2, 1170, '', {
-      fontFamily: 'Verdana, sans-serif',
-      fontSize: 12,
-      color: '#c9ddf5',
-      align: 'center',
-      wordWrap: { width: CONTENT_W - 40 },
-    }).setOrigin(0.5).setVisible(false)
     this.createPowerButtons()
   }
 
   createPowerButtons() {
     this.powerButtons = {}
+    const y = BAR_Y
     const powers = [
-      { key: 'fire', x: W / 2 - 82, count: '0' },
-      { key: 'water', x: W / 2, count: '0' },
-      { key: 'earth', x: W / 2 + 82, count: '0' },
+      { key: 'fire', x: W / 2 - 88 },
+      { key: 'water', x: W / 2 },
+      { key: 'earth', x: W / 2 + 88 },
     ]
+    this.makeRoundedRectTexture('power-btn', 70, 70, 0x4356c9, 0x2a3596, 18, 0x7b8bef)
 
     powers.forEach((power) => {
-      const c = this.add.container(power.x, 1232).setDepth(50)
-      c.add(this.add.circle(3, 7, 27, 0x000000, 0.26))
-      c.add(this.add.circle(0, 0, 28, 0x334bb0, 1))
-      c.add(this.add.image(0, 0, `rune-${power.key}`).setScale(0.082))
-      const countBg = this.add.circle(20, -20, 10, 0xffd85e)
-      const countText = this.add.text(20, -20, power.count, {
-        fontFamily: 'Verdana, sans-serif',
-        fontSize: 10,
-        color: '#3c2b12',
-        fontStyle: 'bold',
+      const c = this.add.container(power.x, y).setDepth(48)
+      c.add(this.add.circle(3, 5, 35, 0x000000, 0.24))
+      c.add(this.add.image(0, 0, 'power-btn'))
+      c.add(this.add.image(0, -1, `rune-${power.key}`).setScale(0.085))
+      const countBg = this.add.circle(22, -22, 12, 0xffd85e).setStrokeStyle(2, 0x7a5a10)
+      const countText = this.add.text(22, -22, '0', {
+        fontFamily: 'Verdana, sans-serif', fontSize: 11, color: '#3c2b12', fontStyle: 'bold',
       }).setOrigin(0.5)
       c.add([countBg, countText])
-      const zone = this.makeHitZone(power.x, 1232, 62, 62)
+      const zone = this.makeHitZone(power.x, y, 70, 70)
       this.addPressFeedback(zone, c, () => this.usePower(power.key))
       this.powerButtons[power.key] = { container: c, countText }
     })
   }
 
   createPawns() {
-    COLORS.forEach((color) => {
+    this.activeColors.forEach((color) => {
       for (let i = 0; i < 4; i++) {
         const pawn = { color, id: i, steps: -1, finished: false }
         this.pawns.push(pawn)
@@ -475,7 +507,7 @@ export class ClassicScene extends UIScene {
     const token = this.add.container(0, 0)
     token.name = 'token'
     const sprite = this.add.image(0, -16, `pawn-${color}`)
-    sprite.setScale(68 / sprite.height)
+    sprite.setScale(76 / sprite.height)
     sprite.name = 'sprite'
     token.add(sprite)
     const zone = this.add.zone(0, 0, 58, 70)
@@ -485,49 +517,54 @@ export class ClassicScene extends UIScene {
   }
 
   rollDice() {
-    if (this.phase !== 'roll') return
+    if (this.phase !== 'roll' || this.gameOver) return
     this.phase = 'rolling'
-    const color = COLORS[this.currentPlayer]
+    this.stopTurnTimer()
+    sfx.roll()
+    sfx.buzz(12)
+    const color = this.currentColor
     if (this.shieldedColors.has(color) && this.shieldExpiresOnOwnRoll.has(color)) {
       this.shieldedColors.delete(color)
       this.shieldExpiresOnOwnRoll.delete(color)
       this.updateShieldVisuals()
     }
-    const activeDice = this.playerDice[color]
+    const dice = this.cornerDice[color]
+    const tray = dice.container
+    const trayY = POD[color].dy
     const forcedValue = this.forcedDiceValue
     const doubleActive = this.doubleNextRoll
     this.forcedDiceValue = null
     this.doubleNextRoll = false
-    this.helpText.setText('Rolling...')
-    this.diceText.setText('ROLLING')
-    this.rollHint.setText('Rolling')
+    this.helpText.setText('Rolling…')
+    this.rollHint.setText('')
     let ticks = 0
+    tray.setVisible(true).setAlpha(1)
     this.tweens.add({
-      targets: activeDice.container,
-      y: activeDice.container.y - 18,
+      targets: tray,
+      y: trayY - 22,
       angle: 540,
-      scale: 1.35,
+      scale: 1.16,
       duration: 360,
       ease: 'Cubic.easeOut',
       onComplete: () => {
         this.tweens.add({
-          targets: activeDice.container,
-          y: activeDice.container.y + 18,
+          targets: tray,
+          y: trayY,
           angle: 720,
-          scale: 1.08,
-          duration: 300,
+          scale: 1,
+          duration: 320,
           ease: 'Bounce.easeOut',
           onComplete: () => {
-            activeDice.container.angle = 0
+            tray.angle = 0
           },
         })
       },
     })
     this.tweens.add({
-      targets: activeDice.glow,
-      alpha: 0.42,
+      targets: dice.glow,
+      alpha: 0.55,
       scale: 1.35,
-      duration: 330,
+      duration: 340,
       yoyo: true,
       ease: 'Sine.easeInOut',
     })
@@ -537,28 +574,33 @@ export class ClassicScene extends UIScene {
       callback: () => {
         ticks++
         const rawValue = ticks === 14 && forcedValue ? forcedValue : Phaser.Math.Between(1, 6)
-        activeDice.face.setTexture(`dice-${rawValue}`)
-        this.diceFace.setTexture(`dice-${rawValue}`)
-        this.rollButton.angle = Phaser.Math.Between(-4, 4)
+        dice.face.setTexture(`dice-${rawValue}`)
         if (ticks === 14) {
           this.rawDiceValue = rawValue
           this.diceValue = doubleActive ? rawValue * 2 : rawValue
-          this.rollButton.angle = 0
-          this.diceText.setText(doubleActive ? `x2 ${this.diceValue}` : rawValue === 6 ? 'SIX!' : 'MOVE')
           this.phase = 'move'
           this.refreshTurnUI()
-          this.popAt(activeDice.container.x, activeDice.container.y, COLOR_HEX[color])
-          if (this.getMovesForCurrentPlayer().length === 0) {
-            this.time.delayedCall(700, () => this.nextTurn())
-          }
+          this.popAt(tray.x, tray.y, COLOR_HEX[color])
+          sfx.land(rawValue)
           this.updatePowerButtons()
+          const resolved = this.onRollResolved
+          this.onRollResolved = null
+          if (this.getMovesForCurrentPlayer().length === 0) {
+            this.time.delayedCall(750, () => this.nextTurn())
+          } else if (this.isBot(color)) {
+            this.time.delayedCall(480, () => resolved && resolved())
+          } else {
+            this.startTurnTimer('move')
+          }
         }
       },
     })
   }
 
   usePower(key) {
-    const color = COLORS[this.currentPlayer]
+    if (this.gameOver) return
+    const color = this.currentColor
+    if (this.isBot(color)) return
     const inventory = this.powerInventory[color]
     if (!inventory?.[key]) return
     if (this.phase !== 'roll') {
@@ -570,6 +612,7 @@ export class ClassicScene extends UIScene {
       this.showControllerPicker()
       return
     }
+    sfx.power()
 
     if (key === 'fire') {
       inventory.fire--
@@ -606,7 +649,7 @@ export class ClassicScene extends UIScene {
   }
 
   showControllerPicker() {
-    const color = COLORS[this.currentPlayer]
+    const color = this.currentColor
     const inventory = this.powerInventory[color]
     if (!inventory?.water || this.phase !== 'roll') return
     if (this.controllerPicker) this.controllerPicker.destroy()
@@ -639,6 +682,7 @@ export class ClassicScene extends UIScene {
         this.controllerPicker?.destroy()
         this.controllerPicker = null
         this.flashPower('water')
+        sfx.power()
         this.updatePowerButtons()
         this.time.delayedCall(160, () => this.rollDice())
       })
@@ -648,7 +692,8 @@ export class ClassicScene extends UIScene {
   }
 
   tryMovePawn(pawn) {
-    if (this.phase !== 'move' || pawn.color !== COLORS[this.currentPlayer] || !this.canMove(pawn)) return
+    if (this.phase !== 'move' || this.gameOver || pawn.color !== this.currentColor || !this.canMove(pawn)) return
+    this.stopTurnTimer()
     this.clearActivePawnZones()
     const from = pawn.steps
     const to = pawn.steps === -1 ? 0 : pawn.steps + this.diceValue
@@ -661,17 +706,22 @@ export class ClassicScene extends UIScene {
       this.collectPowerRune(pawn)
       const captured = this.collectCaptures(pawn)
       const finishTurn = () => {
-        if (pawn.finished) this.popAt(W / 2, BOARD_Y + TILE * 7.5, COLOR_HEX[pawn.color])
+        if (pawn.finished) {
+          this.popAt(W / 2, BOARD_Y + TILE * 7.5, COLOR_HEX[pawn.color])
+          sfx.rune()
+        }
+        this.checkForWinner(pawn.color)
+        if (this.gameOver) return
         this.phase = 'roll'
         const keepsTurn = this.rawDiceValue === 6 || this.extraRollNextTurn
-        if (!keepsTurn && !pawn.finished) this.currentPlayer = (this.currentPlayer + 1) % COLORS.length
+        if (!keepsTurn && !pawn.finished) this.advanceTurn()
         if (this.shieldedColors.has(pawn.color)) this.shieldExpiresOnOwnRoll.add(pawn.color)
         this.extraRollNextTurn = false
         this.diceValue = 0
         this.rawDiceValue = 0
-        this.diceText.setText('ROLL DICE')
         this.refreshTurnUI()
         this.reflowPawns(true)
+        this.time.delayedCall(360, () => this.beginTurn())
       }
 
       if (captured.length > 0) {
@@ -689,21 +739,305 @@ export class ClassicScene extends UIScene {
   }
 
   getMovesForCurrentPlayer() {
-    const color = COLORS[this.currentPlayer]
+    const color = this.currentColor
     return this.pawns.filter((pawn) => pawn.color === color && this.canMove(pawn))
   }
 
   nextTurn() {
-    const color = COLORS[this.currentPlayer]
+    if (this.gameOver) return
+    const color = this.currentColor
     const keepsTurn = this.rawDiceValue === 6 || this.extraRollNextTurn
     this.phase = 'roll'
-    if (!keepsTurn) this.currentPlayer = (this.currentPlayer + 1) % COLORS.length
+    if (!keepsTurn) this.advanceTurn()
     if (this.shieldedColors.has(color)) this.shieldExpiresOnOwnRoll.add(color)
     this.extraRollNextTurn = false
     this.diceValue = 0
     this.rawDiceValue = 0
-    this.diceText.setText('ROLL DICE')
     this.refreshTurnUI('No legal move')
+    this.time.delayedCall(320, () => this.beginTurn())
+  }
+
+  // ---------- turn driver (human timer / bot autoplay) ----------
+
+  beginTurn() {
+    if (this.gameOver || this.phase !== 'roll') return
+    const color = this.currentColor
+    if (this.isBot(color)) {
+      this.time.delayedCall(560, () => this.runBotTurn())
+    } else {
+      this.startTurnTimer('roll')
+    }
+  }
+
+  buildAiState() {
+    const color = this.currentColor
+    return {
+      color,
+      dice: this.diceValue || 0,
+      raw: this.rawDiceValue || 0,
+      pawns: this.pawns.map((p) => ({ color: p.color, id: p.id, steps: p.steps, finished: p.finished })),
+      runes: this.powerRunes.map((r) => ({ type: r.type, index: r.index })),
+      shielded: new Set(this.shieldedColors),
+      inventory: { ...this.powerInventory[color] },
+      difficulty: this.difficulty,
+    }
+  }
+
+  runBotTurn() {
+    if (this.gameOver || this.phase !== 'roll') return
+    const color = this.currentColor
+    const inv = this.powerInventory[color]
+    const powerKey = chooseAiPower(this.buildAiState())
+
+    if (powerKey === 'water' && inv.water > 0) {
+      this.forcedDiceValue = bestForcedDice(this.buildAiState())
+      inv.water--
+      sfx.power()
+    } else if (powerKey === 'fire' && inv.fire > 0) {
+      this.doubleNextRoll = true
+      inv.fire--
+      sfx.power()
+    } else if (powerKey === 'earth' && inv.earth > 0) {
+      inv.earth--
+      this.shieldedColors.add(color)
+      this.shieldExpiresOnOwnRoll.delete(color)
+      this.playShieldAura(color)
+      this.updateShieldVisuals()
+      sfx.power()
+    }
+    this.updatePowerButtons()
+
+    this.onRollResolved = () => this.runBotMove()
+    this.time.delayedCall(powerKey ? 460 : 140, () => this.rollDice())
+  }
+
+  runBotMove() {
+    if (this.gameOver || this.phase !== 'move') return
+    const choice = chooseAiMove(this.buildAiState())
+    if (!choice) {
+      this.nextTurn()
+      return
+    }
+    const pawn = this.pawns.find((p) => p.color === choice.color && p.id === choice.id)
+    this.time.delayedCall(420, () => {
+      if (pawn && !this.gameOver) this.tryMovePawn(pawn)
+    })
+  }
+
+  startTurnTimer(kind) {
+    this.stopTurnTimer()
+    if (this.gameOver || this.isBot(this.currentColor)) return
+    const total = kind === 'move' ? 20 : TURN_SECONDS
+    this.turnSecondsLeft = total
+    this.turnSecondsTotal = total
+    this.drawTimerArc(1)
+    this.turnTimer = this.time.addEvent({
+      delay: 250,
+      loop: true,
+      callback: () => {
+        this.turnSecondsLeft -= 0.25
+        this.drawTimerArc(Math.max(this.turnSecondsLeft, 0) / this.turnSecondsTotal)
+        if (this.turnSecondsLeft <= 0) {
+          this.stopTurnTimer()
+          this.handleTurnTimeout()
+        }
+      },
+    })
+  }
+
+  drawTimerArc(frac) {
+    const badge = this.playerBadges[this.currentColor]
+    const arc = badge?.getByName('arc')
+    if (!arc) return
+    arc.clear()
+    if (frac <= 0) return
+    const col = frac < 0.25 ? 0xff5a5a : 0xffffff
+    arc.lineStyle(4, col, 0.95)
+    arc.beginPath()
+    arc.arc(0, 0, 33, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac, false)
+    arc.strokePath()
+  }
+
+  stopTurnTimer() {
+    if (this.turnTimer) {
+      this.turnTimer.remove(false)
+      this.turnTimer = null
+    }
+    Object.values(this.playerBadges || {}).forEach((b) => b.getByName('arc')?.clear())
+  }
+
+  handleTurnTimeout() {
+    if (this.gameOver) return
+    this.showToast('Time up - auto play')
+    if (this.phase === 'roll') {
+      this.rollDice()
+    } else if (this.phase === 'move') {
+      const moves = this.getMovesForCurrentPlayer()
+      if (moves.length) this.tryMovePawn(Phaser.Utils.Array.GetRandom(moves))
+      else this.nextTurn()
+    }
+  }
+
+  // ---------- win flow ----------
+
+  checkForWinner(color) {
+    const allHome = this.pawns.filter((p) => p.color === color).every((p) => p.finished)
+    if (!allHome || this.finishOrder.includes(color)) return
+    this.finishOrder.push(color)
+    this.endGame()
+  }
+
+  progressOf(color) {
+    return this.pawns
+      .filter((p) => p.color === color)
+      .reduce((sum, p) => sum + Math.max(p.steps, 0), 0)
+  }
+
+  endGame() {
+    if (this.gameOver) return
+    this.gameOver = true
+    this.stopTurnTimer()
+    this.clearActivePawnZones()
+    this.phase = 'over'
+    const winner = this.finishOrder[0]
+    const youWon = winner === this.youColor
+
+    const ranking = [...this.activeColors].sort((a, b) => {
+      if (a === winner) return -1
+      if (b === winner) return 1
+      return this.progressOf(b) - this.progressOf(a)
+    })
+
+    const reward = this.applyRewards(youWon)
+    if (youWon || !this.youColor) sfx.win()
+    else sfx.lose()
+    sfx.buzz(youWon ? [30, 40, 30, 40, 70] : 70)
+    this.cameras.main.shake(300, youWon ? 0.004 : 0.002)
+    this.time.delayedCall(450, () => this.showVictoryOverlay(winner, youWon, ranking, reward))
+  }
+
+  applyRewards(youWon) {
+    if (!this.youColor) return null
+    const captures = this.captureCounts[this.youColor] || 0
+    const coins = (youWon ? 500 : 90) + captures * 12
+    const xp = youWon ? 120 : 35
+    const levels = store.addXp(xp)
+    store.addCoins(coins)
+    store.recordGame({ won: youWon, captures })
+    return { coins, xp, levels, captures, won: youWon }
+  }
+
+  showVictoryOverlay(winner, youWon, ranking, reward) {
+    const cardW = 520
+    const cardH = 616
+    const layer = this.add.container(0, 0).setDepth(200)
+    layer.add(this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.74))
+    layer.add(this.add.zone(W / 2, H / 2, W, H).setInteractive())
+
+    this.makeRoundedRectTexture('victory-card', cardW, cardH, 0x2a1f52, 0x140d2c, 28, COLOR_HEX[winner])
+    const card = this.add.container(W / 2, H / 2, [this.add.image(0, 0, 'victory-card').setAlpha(0.98)])
+
+    const heading = youWon ? 'YOU WIN!' : this.youColor ? 'DEFEAT' : `${winner.toUpperCase()} WINS`
+    card.add(this.add.text(0, -cardH / 2 + 66, heading, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 46, color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5).setStroke('#00000055', 6))
+    card.add(this.add.text(0, -cardH / 2 + 112, `${winner.toUpperCase()} got all four pawns home`, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#c9b8ff',
+    }).setOrigin(0.5))
+
+    const medals = ['1st', '2nd', '3rd', '4th']
+    this.makeRoundedRectTexture('victory-row', cardW - 72, 50, 0x392b6b, 0x2a1f52, 12)
+    ranking.forEach((color, i) => {
+      const row = this.add.container(0, -cardH / 2 + 168 + i * 60)
+      row.add(this.add.image(0, 0, 'victory-row'))
+      row.add(this.add.circle(-cardW / 2 + 58, 0, 14, COLOR_HEX[color]))
+      row.add(this.add.text(-cardW / 2 + 88, 0, medals[i], {
+        fontFamily: 'Verdana, sans-serif', fontSize: 15, color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(0, 0.5))
+      const name = color === this.youColor ? 'YOU' : this.isBot(color) ? `${color.toUpperCase()} BOT` : color.toUpperCase()
+      row.add(this.add.text(-cardW / 2 + 142, 0, name, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#d9ccff',
+      }).setOrigin(0, 0.5))
+      const finished = this.pawns.filter((p) => p.color === color && p.finished).length
+      row.add(this.add.text(cardW / 2 - 54, 0, `${finished}/4 home`, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#a99cd6',
+      }).setOrigin(1, 0.5))
+      card.add(row)
+    })
+
+    let ry = -cardH / 2 + 168 + ranking.length * 60 + 34
+    if (reward) {
+      card.add(this.add.text(0, ry, `+${reward.coins.toLocaleString()} coins    +${reward.xp} XP`, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#ffe27a', fontStyle: 'bold',
+      }).setOrigin(0.5))
+      if (reward.captures) {
+        card.add(this.add.text(0, ry + 26, `includes +${reward.captures * 12} capture bonus (${reward.captures} sent home)`, {
+          fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#c9b8ff',
+        }).setOrigin(0.5))
+      }
+      if (reward.levels > 0) {
+        card.add(this.add.text(0, ry + 52, `LEVEL UP!   You are now level ${store.level}`, {
+          fontFamily: 'Verdana, sans-serif', fontSize: 15, color: '#7cffb2', fontStyle: 'bold',
+        }).setOrigin(0.5))
+      }
+    } else {
+      card.add(this.add.text(0, ry, 'Local match - no rewards', {
+        fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#a99cd6',
+      }).setOrigin(0.5))
+    }
+
+    const by = cardH / 2 - 68
+    this.makeRoundedRectTexture('victory-btn-primary', 214, 62, 0x34c759, 0x1f9d43, 16, 0x9affc0)
+    this.makeRoundedRectTexture('victory-btn-ghost', 214, 62, 0x3a2c66, 0x2a2050, 16, 0x6a5aa8)
+    const rematch = this.add.container(-116, by, [
+      this.add.image(0, 0, 'victory-btn-primary'),
+      this.add.text(0, 0, 'REMATCH', { fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#08240f', fontStyle: 'bold' }).setOrigin(0.5),
+    ])
+    const home = this.add.container(116, by, [
+      this.add.image(0, 0, 'victory-btn-ghost'),
+      this.add.text(0, 0, 'HOME', { fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5),
+    ])
+    card.add([rematch, home])
+    layer.add(card)
+
+    card.setScale(0.82).setAlpha(0)
+    this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 340, ease: 'Back.easeOut' })
+
+    this.makeHitZone(W / 2 - 116, H / 2 + by, 214, 62).setDepth(300)
+      .on('pointerup', () => {
+        sfx.tap()
+        this.cameras.main.fadeOut(200, 0, 0, 0)
+        this.cameras.main.once('camerafadeoutcomplete', () => this.scene.restart(this.lastConfig))
+      })
+    this.makeHitZone(W / 2 + 116, H / 2 + by, 214, 62).setDepth(300)
+      .on('pointerup', () => {
+        sfx.tap()
+        this.goTo('Home')
+      })
+
+    this.victoryConfetti(winner)
+  }
+
+  victoryConfetti(winner) {
+    if (!this.textures.exists('classic-spark')) {
+      const g = this.make.graphics()
+      g.fillStyle(0xffffff, 1)
+      g.fillCircle(6, 6, 6)
+      g.generateTexture('classic-spark', 12, 12)
+      g.destroy()
+    }
+    this.add.particles(W / 2, -20, 'classic-spark', {
+      x: { min: 0, max: W },
+      speedY: { min: 130, max: 340 },
+      speedX: { min: -70, max: 70 },
+      scale: { start: 1.5, end: 0.4 },
+      rotate: { min: 0, max: 360 },
+      lifespan: 2800,
+      quantity: 3,
+      frequency: 45,
+      duration: 2400,
+      tint: [COLOR_HEX[winner], 0xffffff, 0xffd85e, 0x7cffb2],
+    }).setDepth(260)
   }
 
   collectCaptures(movedPawn) {
@@ -729,6 +1063,9 @@ export class ClassicScene extends UIScene {
 
   playCaptureSequence(attacker, captured, onComplete) {
     this.phase = 'capture'
+    this.captureCounts[attacker.color] += captured.length
+    sfx.capture()
+    sfx.buzz([16, 40, 24])
     const attackerView = this.pawnViews.get(attacker)
     const attackerScale = attackerView.getData('stackScale') ?? 1
     this.tweens.add({
@@ -840,6 +1177,7 @@ export class ClassicScene extends UIScene {
   playShieldBlock(pawn) {
     const view = this.pawnViews.get(pawn)
     if (!view) return
+    sfx.shield()
     const shield = this.add.circle(view.x, view.y, 10, 0x9ee7ff, 0.12).setStrokeStyle(5, 0xd9fbff, 0.9).setDepth(47)
     this.tweens.add({
       targets: shield,
@@ -876,6 +1214,7 @@ export class ClassicScene extends UIScene {
         onComplete?.()
         return
       }
+      sfx.hop()
       const target = this.getPixelFor(pawn.color, step)
       this.tweens.add({
         targets: token,
@@ -1012,6 +1351,7 @@ export class ClassicScene extends UIScene {
     if (cell.type !== 'track') return
     const rune = this.powerRunes.find((item) => item.index === cell.index)
     if (!rune) return
+    sfx.rune()
 
     if (rune.type === 'air') {
       this.extraRollNextTurn = true
@@ -1069,37 +1409,60 @@ export class ClassicScene extends UIScene {
   }
 
   refreshTurnUI(prefix) {
-    const color = COLORS[this.currentPlayer]
+    const color = this.currentColor
+    const bot = this.isBot(color)
+    const name = this.playerName(color)
+
+    // active player's pod lifts + glows; others recede
     Object.entries(this.playerBadges).forEach(([key, badge]) => {
-      this.tweens.add({ targets: badge, scale: key === color ? 1.18 : 1, duration: 150 })
-      badge.setAlpha(key === color ? 1 : 0.72)
+      const on = key === color
+      this.tweens.add({ targets: badge, scale: on ? 1.14 : 1, duration: 160, ease: 'Back.easeOut' })
+      badge.setAlpha(on ? 1 : 0.62)
       const ring = badge.getByName('ring')
-      if (ring) ring.setFillStyle(key === color ? COLOR_HEX[key] : 0xffffff, key === color ? 0.42 : 0.12)
+      if (ring) {
+        this.tweens.killTweensOf(ring)
+        ring.setFillStyle(COLOR_HEX[key], on ? 0.35 : 0.001)
+        if (on) {
+          this.tweens.add({ targets: ring, scale: 1.14, alpha: 0.6, duration: 720, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+        } else {
+          ring.setScale(1)
+        }
+      }
+      if (!on) badge.getByName('arc')?.clear()
     })
-    Object.entries(this.playerDice).forEach(([key, dice]) => {
-      const active = key === color
-      dice.container.setAlpha(active ? 1 : 0.34)
-      dice.glow.setFillStyle(COLOR_HEX[key], active ? 0.16 : 0)
-      this.tweens.add({
-        targets: dice.container,
-        scale: active ? 1.08 : 0.86,
-        duration: 170,
-        ease: 'Sine.easeOut',
-      })
+
+    // only the active player's dice is shown, near their pod
+    Object.entries(this.cornerDice).forEach(([key, dice]) => {
+      const on = key === color && this.activeColors.includes(key)
+      dice.container.setVisible(on)
+      if (!on) return
+      this.tweens.killTweensOf(dice.glow)
+      if (!bot && this.phase === 'roll') {
+        dice.container.setAlpha(1)
+        dice.glow.setScale(1)
+        this.tweens.add({ targets: dice.glow, alpha: 0.4, scale: 1.3, duration: 760, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+      } else {
+        dice.container.setAlpha(bot ? 0.92 : 1)
+        dice.glow.setAlpha(0)
+      }
     })
-    this.turnChipBg.setTexture(`turn-chip-${color}`)
-    this.turnDot.setFillStyle(COLOR_HEX[color], 1)
-    this.statusText.setText(`${color.toUpperCase()}'S TURN`)
+
     if (this.phase === 'move') {
       const moves = this.getMovesForCurrentPlayer().length
-      const rollLabel = this.rawDiceValue && this.rawDiceValue !== this.diceValue ? `${this.rawDiceValue} x2 = ${this.diceValue}` : `${this.diceValue}`
-      this.helpText.setText(moves > 0 ? `Rolled ${rollLabel}. Tap a highlighted pawn.` : `Rolled ${rollLabel}. No legal move.`)
-      this.actionLabel.setText(`${color.toUpperCase()} ROLLED ${rollLabel}`)
-      this.rollHint.setText(moves > 0 ? 'Choose a pawn' : 'No move')
+      const rollLabel = this.rawDiceValue && this.rawDiceValue !== this.diceValue ? `${this.rawDiceValue}×2 = ${this.diceValue}` : `${this.diceValue}`
+      if (bot) {
+        this.helpText.setText(`${name} rolled ${rollLabel}`)
+        this.rollHint.setText('moving…')
+      } else {
+        this.helpText.setText(moves > 0 ? `You rolled ${rollLabel}` : `You rolled ${rollLabel} — no move`)
+        this.rollHint.setText(moves > 0 ? 'tap a glowing pawn' : '')
+      }
+    } else if (bot) {
+      this.helpText.setText(`${name}'s turn`)
+      this.rollHint.setText('rolling…')
     } else {
-      this.helpText.setText(prefix ? `${prefix}. ${color.toUpperCase()} rolls next.` : 'Roll a 6 to leave base. Sixes earn another roll.')
-      this.actionLabel.setText(`${color.toUpperCase()}'S TURN`)
-      this.rollHint.setText('Roll to play')
+      this.helpText.setText(prefix ? prefix : 'Your turn')
+      this.rollHint.setText('tap your dice to roll')
     }
     this.updatePawnHighlights()
     this.updatePowerButtons()
@@ -1107,11 +1470,12 @@ export class ClassicScene extends UIScene {
 
   updatePowerButtons() {
     if (!this.powerButtons) return
-    const color = COLORS[this.currentPlayer]
+    const color = this.currentColor
     const inventory = this.powerInventory[color]
+    const human = !this.isBot(color)
     Object.entries(this.powerButtons).forEach(([key, button]) => {
       const count = inventory?.[key] ?? 0
-      const enabled = count > 0 && this.phase === 'roll'
+      const enabled = human && count > 0 && this.phase === 'roll'
       button.countText.setText(`${count}`)
       button.container.setAlpha(enabled ? 1 : 0.42)
     })
@@ -1123,7 +1487,7 @@ export class ClassicScene extends UIScene {
       const view = this.pawnViews.get(pawn)
       const glow = view.getByName('glow')
       const shield = view.getByName('shield')
-      const active = this.phase === 'move' && pawn.color === COLORS[this.currentPlayer] && this.canMove(pawn)
+      const active = this.phase === 'move' && !this.isBot(pawn.color) && pawn.color === this.currentColor && this.canMove(pawn)
       view.setAlpha(active ? 1 : 0.92)
       this.tweens.killTweensOf(view)
       this.tweens.killTweensOf(shield)
