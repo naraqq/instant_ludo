@@ -1,450 +1,324 @@
 import Phaser from 'phaser'
-import { W, H, MARGIN, CONTENT_W } from '../config.js'
+import { W, H, CONTENT_W } from '../config.js'
 import { UIScene } from '../ui/UIScene.js'
+import { DUR, EASE, dur, prefersReducedMotion } from '../ui/tokens.js'
 import { store, xpForLevel } from '../store.js'
 import { sfx } from '../audio.js'
+import { COLOR_HEX } from './board.js'
+import { t, getLocale, setLocale, LOCALES, LOCALE_LABEL } from '../i18n.js'
 
 const FREE_COINS_AMOUNT = 5000
+const ELEMENTS = [
+  { key: 'fire', color: 0xe94a42 },
+  { key: 'water', color: 0x2f87e8 },
+  { key: 'earth', color: 0x25bd5c },
+  { key: 'air', color: 0xf0c433 },
+]
 
 export class HomeScene extends UIScene {
   constructor() {
     super('Home')
   }
 
-  get coins() { return store.coins }
-  get gems() { return store.gems }
-
   preload() {
-    this.makeBackgroundTexture('bg-home', '#241a4a', '#8a4fc4')
-    this.makePawnTextures()
+    this.makeBackgroundTexture('bg-home', '#241a4a', '#7a45b4')
+    ELEMENTS.forEach(({ key }) => {
+      this.load.image(`hero-${key}`, `assets/sprites/pawn-${key}.png`)
+      this.load.image(`hero-${key}-sm`, `assets/sprites/pawn-${key}-sm.png`)
+      this.load.image(`rune-${key}`, `assets/sprites/rune-${key}.png`)
+    })
   }
 
   create() {
     this.add.image(W / 2, H / 2, 'bg-home')
-    this.createSkyline()
+    this.createBackdrop()
+    this.createTopPanel()
+    this.createHero()
+    this.createPlayButton()
+    this.createSecondaryRow()
+    this.createDailyStrip()
+    this.createPowerLegend()
+    this.createFooter()
 
-    this.createTopBar()
-    this.createPromoRow()
-    this.createModeCards()
-    this.createSmallCards()
-    this.createChatBar()
-    this.createBanners()
-    this.createBottomNav()
-
-    this.cameras.main.fadeIn(200, 0, 0, 0)
+    this.enterScene()
+    this.playEntrance()
   }
 
   // ---------- background ----------
 
-  createSkyline() {
-    const g = this.add.graphics()
-    g.fillStyle(0x1a1030, 0.35)
-    let x = 0
-    while (x < W) {
-      const bw = Phaser.Math.Between(40, 90)
-      const bh = Phaser.Math.Between(80, 220)
-      g.fillRect(x, H - bh, bw, bh)
-      x += bw + Phaser.Math.Between(4, 14)
-    }
-    g.fillStyle(0xffffff, 0.06)
-    g.fillCircle(W - 90, H - 260, 70)
-    g.lineStyle(2, 0xffffff, 0.08)
-    for (let a = 0; a < 360; a += 45) {
-      const rad = Phaser.Math.DegToRad(a)
-      g.lineBetween(W - 90, H - 260, W - 90 + Math.cos(rad) * 70, H - 260 + Math.sin(rad) * 70)
-    }
-  }
+  createBackdrop() {
+    const g = this.add.graphics().setDepth(0)
+    g.fillStyle(0x080520, 0.28)
+    g.fillRect(0, 0, W, H)
+    g.fillStyle(0xffffff, 0.03)
+    g.fillCircle(110, 240, 150)
+    g.fillCircle(630, 1040, 190)
 
-  makePawnTextures() {
-    const colors = { red: 0xff5252, green: 0x4ecb71, blue: 0x4d96ff, yellow: 0xffd54d }
-    const g = this.make.graphics()
-    Object.entries(colors).forEach(([name, color]) => {
-      g.clear()
-      g.fillStyle(color, 1)
-      g.fillCircle(18, 18, 18)
-      g.fillStyle(0xffffff, 0.35)
-      g.fillCircle(13, 12, 6)
-      g.generateTexture(`pawn-${name}`, 36, 36)
+    // faint 4-colour pinwheel behind the hero
+    const cx = W / 2
+    const cy = 372
+    const r = 220
+    const quads = [
+      [COLOR_HEX.red, 180, 270],
+      [COLOR_HEX.green, 270, 360],
+      [COLOR_HEX.yellow, 0, 90],
+      [COLOR_HEX.blue, 90, 180],
+    ]
+    quads.forEach(([col, a0, a1]) => {
+      const cg = this.add.graphics().setDepth(0)
+      cg.fillStyle(col, 0.05)
+      cg.slice(cx, cy, r, Phaser.Math.DegToRad(a0), Phaser.Math.DegToRad(a1))
+      cg.fillPath()
     })
-    g.destroy()
   }
 
-  // ---------- top bar ----------
+  // ---------- top panel: avatar · level · xp · coins ----------
 
-  createTopBar() {
-    const cy = 76
-    this.makeRoundedRectTexture('bar-topbar', CONTENT_W, 104, 0x18234a, 0x223257, 52)
-    this.add.image(W / 2, cy, 'bar-topbar').setAlpha(0.92)
+  createTopPanel() {
+    const y = 52
+    this.makeRoundedRectTexture('home-top', CONTENT_W, 78, 0x2a1e5c, 0x201646, 24, 0x5847a0)
+    this.topPanel = this.add.container(W / 2, y).setDepth(6)
+    this.topPanel.add(this.add.image(0, 0, 'home-top').setAlpha(0.97))
 
-    const avatar = this.add.circle(80, cy, 46, 0x2b1f5c)
-    avatar.setStrokeStyle(3, 0xffd54d)
-    this.add.text(80, cy, '🦊', { fontSize: 44 }).setOrigin(0.5)
+    const left = -CONTENT_W / 2
+    // avatar
+    this.topPanel.add(this.add.circle(left + 44, 0, 26, 0x1c1440).setStrokeStyle(3, 0x6f5cc4))
+    this.topPanel.add(this.add.image(left + 44, 20, 'hero-water-sm').setOrigin(0.5, 1).setScale(52 / 120))
 
-    this.makeRoundedRectTexture('level-badge', 66, 26, 0x7a1f3d, 0x7a1f3d, 13, 0xffd54d)
-    this.add.image(80, cy + 46, 'level-badge')
-    this.add.text(80, cy + 46, `Lv.${store.level}`, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(0.5)
+    // level + xp
+    this.topPanel.add(this.add.text(left + 82, -14, t('home.level', { n: store.level }), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 15, color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0, 0.5))
+    const barW = 170
+    const pct = Phaser.Math.Clamp(store.xp / xpForLevel(store.level), 0, 1)
+    this.topPanel.add(this.add.rectangle(left + 82, 12, barW, 8, 0x120c30).setOrigin(0, 0.5).setStrokeStyle(1, 0x4a3d8f))
+    const fill = this.add.rectangle(left + 82, 12, 1, 8, 0x7cffb2).setOrigin(0, 0.5)
+    this.topPanel.add(fill)
+    this.tweens.add({ targets: fill, width: Math.max(2, barW * pct), duration: dur(600), delay: dur(300), ease: EASE.out })
+    this.topPanel.add(this.add.text(left + 82 + barW + 10, 12, `${Math.round(store.xp)}/${xpForLevel(store.level)}`, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 10, color: '#9d8fd6',
+    }).setOrigin(0, 0.5))
 
-    // thin XP progress bar under the level badge
-    const xpW = 66
-    const xpPct = Phaser.Math.Clamp(store.xp / xpForLevel(store.level), 0, 1)
-    this.add.rectangle(80, cy + 63, xpW, 5, 0x0c1330, 0.9).setOrigin(0.5)
-    this.add.rectangle(80 - xpW / 2, cy + 63, xpW * xpPct, 5, 0x7cffb2).setOrigin(0, 0.5)
-
-    const coinPill = this.createTopPill(245, cy, 210, '🪙', () => this.formatCoins(this.coins), '#ffe27a')
-    this.coinLabel = coinPill.amountText
-
-    const plusZone = this.makeHitZone(340, cy, 38, 38)
-    const plusBtn = this.add.circle(340, cy, 19, 0x34c759)
-    this.add.text(340, cy, '+', { fontFamily: 'Verdana, sans-serif', fontSize: 22, color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5)
-    this.addPressFeedback(plusZone, plusBtn, () => this.showToast('Buy more coins — Shop coming soon!'))
-
-    this.createTopPill(440, cy, 150, '💎', () => `${this.gems}`, '#c9a6ff')
-
-    const mailZone = this.makeHitZone(560, cy, 52, 52)
-    const mail = this.add.circle(560, cy, 26, 0x223257).setStrokeStyle(2, 0x3a4a78)
-    this.add.text(560, cy, '✉️', { fontSize: 22 }).setOrigin(0.5)
-    this.addPressFeedback(mailZone, mail, () => this.showToast('No new messages'))
-
-    const settingsZone = this.makeHitZone(636, cy, 52, 52)
-    const settings = this.add.circle(636, cy, 26, 0x223257).setStrokeStyle(2, 0x3a4a78)
-    this.add.text(636, cy, '⚙️', { fontSize: 22 }).setOrigin(0.5)
-    this.addPressFeedback(settingsZone, settings, () => this.openSettings())
-  }
-
-  createTopPill(cx, cy, w, icon, amountFn, color) {
-    const key = `pill-${w}`
-    this.makeRoundedRectTexture(key, w, 64, 0x223257, 0x223257, 32)
-    this.add.image(cx, cy, key)
-    this.add.text(cx - w / 2 + 24, cy, icon, { fontSize: 26 }).setOrigin(0.5)
-    const amountText = this.add.text(cx - w / 2 + 48, cy, amountFn(), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 21, color, fontStyle: 'bold',
+    // coins
+    const cRight = CONTENT_W / 2 - 20
+    this.topPanel.add(this.add.circle(cRight - 96, 0, 14, 0xffcf3f).setStrokeStyle(2, 0xffe9a3))
+    this.topPanel.add(this.add.text(cRight - 96, -1, '★', { fontSize: 14, color: '#8a5a00' }).setOrigin(0.5))
+    this.coinLabel = this.add.text(cRight - 74, 0, store.coins.toLocaleString(), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 18, color: '#ffe27a', fontStyle: 'bold',
     }).setOrigin(0, 0.5)
-    return { amountText }
+    this.topPanel.add(this.coinLabel)
+  }
+
+  // ---------- hero ----------
+
+  createHero() {
+    this.wordmark = this.add.container(W / 2, 168).setDepth(5)
+    this.wordmark.add(this.add.text(0, 0, 'INSTANT', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 40, color: '#ffd54d', fontStyle: 'bold',
+    }).setOrigin(0.5, 1).setStroke('#3a1e00', 6))
+    this.wordmark.add(this.add.text(0, 6, 'LUDO', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 64, color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5, 0).setStroke('#241452', 8))
+    this.wordmark.add(this.add.text(0, 84, t('home.tagline'), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#d6c8ff',
+    }).setOrigin(0.5))
+
+    // four element characters standing on one baseline
+    this.heroChars = []
+    const xs = [W / 2 - 204, W / 2 - 68, W / 2 + 68, W / 2 + 204]
+    const baseline = 462
+    ELEMENTS.forEach(({ key }, i) => {
+      const img = this.add.image(xs[i], baseline, `hero-${key}`).setOrigin(0.5, 1).setScale(0.56).setDepth(4)
+      img.setData('homeY', baseline)
+      this.heroChars.push(img)
+    })
+  }
+
+  startHeroIdle() {
+    if (prefersReducedMotion) return
+    this.heroChars.forEach((img, i) => {
+      this.tweens.add({
+        targets: img,
+        y: img.getData('homeY') - 10,
+        duration: 1400 + i * 160,
+        yoyo: true,
+        repeat: -1,
+        ease: EASE.breathe,
+        delay: i * 180,
+      })
+    })
+  }
+
+  // ---------- play ----------
+
+  createPlayButton() {
+    const y = 640
+    const w = 344
+    const h = 96
+    this.makeRoundedRectTexture('home-play', w, h, 0x3ddc6b, 0x1f9d43, 22, 0xa9f6b4)
+    this.playBtn = this.add.container(W / 2, y).setDepth(8).setData('baseScale', 1)
+    this.playBtn.add(this.add.image(0, 5, 'home-play').setAlpha(0.28).setTint(0x000000)) // soft shadow
+    this.playBtn.add(this.add.image(0, 0, 'home-play'))
+    const playLabel = this.add.text(-14, 0, t('home.play'), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 34, color: '#08240f', fontStyle: 'bold',
+    }).setOrigin(0.5)
+    this.playBtn.add(playLabel)
+    this.playBtn.add(this.add.text(playLabel.width / 2 + 26, 1, '▶', { fontSize: 30, color: '#08240f' }).setOrigin(0.5))
+
+    const zone = this.makeHitZone(W / 2, y, w, h)
+    this.addPressFeedback(zone, this.playBtn, () => this.openGameSetup())
+
+    if (!prefersReducedMotion) {
+      this.tweens.add({
+        targets: this.playBtn, scale: 1.03, duration: 1100, yoyo: true, repeat: -1, ease: EASE.breathe,
+      })
+    }
+  }
+
+  // ---------- settings / stats ----------
+
+  createSecondaryRow() {
+    const y = 772
+    const w = 168
+    const gap = 16
+    this.makeRoundedRectTexture('home-ghost', w, 62, 0x342a68, 0x281f52, 16, 0x5b4aa6)
+    const make = (x, icon, label, onClick) => {
+      const c = this.add.container(x, y).setDepth(7).setData('baseScale', 1)
+      c.add(this.add.image(0, 0, 'home-ghost'))
+      c.add(this.add.text(-w / 2 + 30, 0, icon, { fontSize: 22 }).setOrigin(0.5))
+      c.add(this.add.text(6, 0, label, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 16, color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(0.5))
+      this.addPressFeedback(this.makeHitZone(x, y, w, 62), c, onClick)
+      return c
+    }
+    this.secButtons = [
+      make(W / 2 - w / 2 - gap / 2, '⚙', t('home.settings'), () => this.openSettings()),
+      make(W / 2 + w / 2 + gap / 2, '📊', t('home.stats'), () => this.openStats()),
+    ]
+  }
+
+  // ---------- daily bonus ----------
+
+  createDailyStrip() {
+    const y = 876
+    const ready = store.freeCoinsReady()
+    this.makeRoundedRectTexture(
+      `home-daily-${ready ? 'on' : 'off'}`,
+      CONTENT_W, 60,
+      ready ? 0xffd85e : 0x2f2556,
+      ready ? 0xffb020 : 0x241c46,
+      20,
+      ready ? 0xffe9a3 : 0x4a3d8f
+    )
+    this.dailyStrip = this.add.container(W / 2, y).setDepth(7).setData('baseScale', 1)
+    this.dailyStrip.add(this.add.image(0, 0, `home-daily-${ready ? 'on' : 'off'}`))
+    this.dailyStrip.add(this.add.text(-CONTENT_W / 2 + 34, 0, '🎁', { fontSize: 24 }).setOrigin(0.5))
+    this.dailyText = this.add.text(-CONTENT_W / 2 + 62, 0, '', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 15,
+      color: ready ? '#5a3d00' : '#c6b8ee', fontStyle: 'bold',
+    }).setOrigin(0, 0.5)
+    this.dailyStrip.add(this.dailyText)
+    this.refreshDaily()
+
+    this.addPressFeedback(this.makeHitZone(W / 2, y, CONTENT_W, 60), this.dailyStrip, () => {
+      if (!store.freeCoinsReady()) {
+        this.showToast(t('home.dailyRecharge'))
+        return
+      }
+      store.claimFreeCoins(FREE_COINS_AMOUNT)
+      sfx.rune()
+      this.countUp(this.coinLabel, store.coins, { format: (n) => Math.round(n).toLocaleString() })
+      this.pulseOnce(this.coinLabel, { scale: 1.4 })
+      this.showToast(t('home.coinsGained', { n: FREE_COINS_AMOUNT.toLocaleString() }))
+      this.time.delayedCall(300, () => this.scene.restart())
+    })
+
+    // keep the countdown fresh while the player lingers
+    this.time.addEvent({ delay: 30000, loop: true, callback: () => this.refreshDaily() })
+  }
+
+  refreshDaily() {
+    if (!this.dailyText) return
+    if (store.freeCoinsReady()) {
+      this.dailyText.setText(t('home.dailyReady', { n: FREE_COINS_AMOUNT.toLocaleString() }))
+      return
+    }
+    const ms = store.freeCoinsRemaining()
+    const hrs = Math.floor(ms / 3600000)
+    const mins = Math.floor((ms % 3600000) / 60000)
+    this.dailyText.setText(t('home.dailyWait', { h: hrs, m: mins }))
+  }
+
+  // ---------- power legend (also serves as a mini how-to) ----------
+
+  createPowerLegend() {
+    const y = 1040
+    const h = 150
+    this.makeRoundedRectTexture('home-legend', CONTENT_W, h, 0x241b4c, 0x1b1440, 20, 0x453a7e)
+    this.legend = this.add.container(W / 2, y).setDepth(6)
+    this.legend.add(this.add.image(0, 0, 'home-legend').setAlpha(0.9))
+    this.legend.add(this.add.text(0, -h / 2 + 20, t('home.powersTitle'), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 11, color: '#9d8fd6', fontStyle: 'bold',
+    }).setOrigin(0.5))
+
+    const powers = [
+      ['fire', t('home.powerFire')],
+      ['water', t('home.powerWater')],
+      ['earth', t('home.powerEarth')],
+      ['air', t('home.powerAir')],
+    ]
+    powers.forEach(([key, desc], i) => {
+      const col = i % 2
+      const row = Math.floor(i / 2)
+      const px = col === 0 ? -CONTENT_W / 2 + 34 : 24
+      const py = -h / 2 + 58 + row * 44
+      this.legend.add(this.add.image(px, py, `rune-${key}`).setScale(46 / 240).setOrigin(0.5))
+      this.legend.add(this.add.text(px + 26, py, desc, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#d6c8ff',
+      }).setOrigin(0, 0.5))
+    })
+  }
+
+  // ---------- footer ----------
+
+  createFooter() {
+    const st = store.stats
+    const line = st.games
+      ? t('home.record', { n: st.games, p: Math.round((st.wins / st.games) * 100), s: st.bestStreak })
+      : t('home.firstMatch')
+    this.footer = this.add.text(W / 2, 1160, line, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#8f80c8',
+    }).setOrigin(0.5).setDepth(6)
+  }
+
+  // ---------- entrance ----------
+
+  playEntrance() {
+    if (prefersReducedMotion) {
+      this.startHeroIdle()
+      return
+    }
+    this.slideIn(this.topPanel, { dy: -30, duration: DUR.entrance })
+    this.popIn(this.wordmark, { from: 0.7, delay: 120, duration: DUR.slow })
+    this.heroChars.forEach((img) => img.setData('baseScale', 0.56))
+    this.heroChars.forEach((img, i) => {
+      img.setAlpha(0).setScale(0.28)
+      this.tweens.add({
+        targets: img, alpha: 1, scale: 0.56,
+        delay: dur(260 + i * 90), duration: dur(DUR.base), ease: EASE.pop,
+      })
+    })
+    this.time.delayedCall(dur(260 + 4 * 90 + 240), () => this.startHeroIdle())
+    this.slideIn(this.playBtn, { dy: 40, delay: 360, duration: DUR.slow })
+    this.enterStagger(this.secButtons, { dy: 24, step: 70, delay: 500 })
+    this.slideIn(this.dailyStrip, { dy: 20, delay: 620, duration: DUR.base })
+    this.slideIn(this.legend, { dy: 20, delay: 700, duration: DUR.base })
+    this.slideIn(this.footer, { dy: 12, delay: 780, duration: DUR.base })
   }
 
   formatCoins(n) {
     return n.toLocaleString('en-US')
-  }
-
-  bumpCoins(amount) {
-    store.addCoins(amount)
-    this.coinLabel.setText(this.formatCoins(store.coins))
-    this.tweens.add({
-      targets: this.coinLabel,
-      scale: { from: 1.4, to: 1 },
-      duration: 300,
-      ease: 'Back.easeOut',
-    })
-  }
-
-  // ---------- promo icon row ----------
-
-  createPromoRow() {
-    const items = [
-      { icon: '💰', label: 'Endless Riches', timer: '1d 23h', badge: '1' },
-      { icon: '💎', label: 'Gems Pack' },
-      { icon: '🎡', label: 'Lucky Wheel', badge: '8' },
-      { icon: '📝', label: 'Feedback' },
-    ]
-    const cardW = (CONTENT_W - 12 * 3) / 4
-    const cy = 146 + 150 / 2
-
-    items.forEach((item, i) => {
-      const cx = MARGIN + cardW / 2 + i * (cardW + 12)
-      this.createPromoCard(cx, cy, cardW, item)
-    })
-  }
-
-  createPromoCard(cx, cy, slotW, { icon, label, timer, badge }) {
-    const iconSize = 92
-    const key = `promo-icon-${iconSize}`
-    this.makeRoundedRectTexture(key, iconSize, iconSize, 0xfff3d6, 0xffe6b0, 18)
-
-    const container = this.add.container(cx, cy - 8)
-    const bg = this.add.image(0, -22, key)
-    const iconText = this.add.text(0, -22, icon, { fontSize: 44 }).setOrigin(0.5)
-    const labelText = this.add.text(0, 55, label, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#ffffff', fontStyle: 'bold',
-      align: 'center', wordWrap: { width: slotW + 10 },
-    }).setOrigin(0.5).setShadow(0, 1, '#000000aa', 2, false, true)
-
-    container.add([bg, iconText, labelText])
-
-    if (timer) {
-      const timerKey = 'timer-pill'
-      this.makeRoundedRectTexture(timerKey, 66, 22, 0xff4757, 0xff4757, 11)
-      const timerBg = this.add.image(0, -22 - iconSize / 2 - 2, timerKey)
-      const timerText = this.add.text(0, -22 - iconSize / 2 - 2, timer, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 11, color: '#ffffff', fontStyle: 'bold',
-      }).setOrigin(0.5)
-      container.add([timerBg, timerText])
-    }
-
-    if (badge) {
-      const bx = iconSize / 2 - 6
-      const by = -22 - iconSize / 2 + 6
-      const badgeBg = this.add.circle(bx, by, 13, 0xff3b30).setStrokeStyle(2, 0xffffff)
-      const badgeText = this.add.text(bx, by, badge, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#ffffff', fontStyle: 'bold',
-      }).setOrigin(0.5)
-      container.add([badgeBg, badgeText])
-    }
-
-    const zone = this.makeHitZone(cx, cy - 8, slotW, 150)
-    this.addPressFeedback(zone, container, () => this.showToast(`Opening ${label}...`))
-    return container
-  }
-
-  // ---------- mode cards ----------
-
-  createModeCards() {
-    const cardW = (CONTENT_W - 16) / 2
-    const cardH = 325
-    const cy = 316 + cardH / 2
-
-    this.createModeCard(MARGIN + cardW / 2, cy, cardW, cardH, {
-      key: 'power',
-      gradientTop: 0xffd85e,
-      gradientBottom: 0xff9a2e,
-      stroke: 0xffedb0,
-      title: 'POWER',
-      subtitle: 'Fast dice battles',
-      ribbon: { text: 'HOT', color: 0xff3b30 },
-      buildIcon: (c) => {
-        c.add(this.add.text(0, -40, '🎲', { fontSize: 88 }).setOrigin(0.5))
-        c.add(this.add.text(-95, -110, '⭐', { fontSize: 30 }).setOrigin(0.5))
-      },
-      onClick: () => this.goTo('Power'),
-    })
-
-    this.createModeCard(MARGIN + cardW + 16 + cardW / 2, cy, cardW, cardH, {
-      key: 'classic',
-      gradientTop: 0xff9a5c,
-      gradientBottom: 0xff6a3d,
-      stroke: 0xffd9c2,
-      title: 'CLASSIC',
-      subtitle: '2-4 player Ludo',
-      buildIcon: (c) => {
-        const offsets = [
-          ['pawn-red', -28, -50],
-          ['pawn-green', 28, -50],
-          ['pawn-blue', -28, -14],
-          ['pawn-yellow', 28, -14],
-        ]
-        offsets.forEach(([tex, ox, oy]) => c.add(this.add.image(ox, oy, tex).setScale(1.4)))
-      },
-      onClick: () => this.openGameSetup(),
-    })
-  }
-
-  createModeCard(cx, cy, w, h, { key, gradientTop, gradientBottom, stroke, title, subtitle, ribbon, buildIcon, onClick }) {
-    this.makeRoundedRectTexture(`mode-${key}`, w, h, gradientTop, gradientBottom, 24, stroke)
-
-    const container = this.add.container(cx, cy)
-    container.add(this.add.image(0, 0, `mode-${key}`))
-
-    buildIcon(container)
-
-    const title1 = this.add.text(0, 108, title, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 42, color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(0.5).setStroke('#00000040', 5)
-    container.add(title1)
-
-    const subtitleText = this.add.text(0, 146, subtitle, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#ffffffcc',
-    }).setOrigin(0.5)
-    container.add(subtitleText)
-
-    if (ribbon) {
-      const ribbonKey = `ribbon-${ribbon.text}`
-      this.makeRoundedRectTexture(ribbonKey, 74, 30, ribbon.color, ribbon.color, 8)
-      const ribbonBg = this.add.image(-w / 2 + 44, -h / 2 + 28, ribbonKey).setAngle(-10)
-      const ribbonText = this.add.text(-w / 2 + 44, -h / 2 + 28, ribbon.text, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 15, color: '#ffffff', fontStyle: 'bold',
-      }).setOrigin(0.5).setAngle(-10)
-      container.add([ribbonBg, ribbonText])
-    }
-
-    const zone = this.makeHitZone(cx, cy, w, h)
-    this.addPressFeedback(zone, container, onClick)
-    return container
-  }
-
-  // ---------- small cards ----------
-
-  createSmallCards() {
-    const cardW = (CONTENT_W - 12 * 2) / 3
-    const cardH = 196
-    const cy = 655 + cardH / 2
-
-    const configs = [
-      { key: 'minimap', gradientTop: 0x35e0c8, gradientBottom: 0x12a898, icon: '🗺️', label: 'Mini Map', ribbon: { text: 'NEW', color: 0x34c759 } },
-      { key: 'friends', gradientTop: 0x5fa8ff, gradientBottom: 0x3a74e0, icon: '👫', label: 'Friends' },
-      { key: 'computer', gradientTop: 0xb48bff, gradientBottom: 0x8a5cf0, icon: '🤖', label: 'Computer & Local' },
-    ]
-
-    configs.forEach((cfg, i) => {
-      const cx = MARGIN + cardW / 2 + i * (cardW + 12)
-      this.createSmallCard(cx, cy, cardW, cardH, cfg)
-    })
-  }
-
-  createSmallCard(cx, cy, w, h, { key, gradientTop, gradientBottom, icon, label, ribbon }) {
-    this.makeRoundedRectTexture(`small-${key}`, w, h, gradientTop, gradientBottom, 20)
-
-    const container = this.add.container(cx, cy)
-    container.add(this.add.image(0, 0, `small-${key}`))
-    container.add(this.add.text(0, -30, icon, { fontSize: 54 }).setOrigin(0.5))
-    container.add(
-      this.add.text(0, 58, label, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 16, color: '#ffffff', fontStyle: 'bold',
-        align: 'center', wordWrap: { width: w - 20 },
-      }).setOrigin(0.5)
-    )
-
-    if (ribbon) {
-      const ribbonKey = `sribbon-${ribbon.text}`
-      this.makeRoundedRectTexture(ribbonKey, 66, 26, ribbon.color, ribbon.color, 8)
-      const ribbonBg = this.add.image(-w / 2 + 40, -h / 2 + 26, ribbonKey).setAngle(-10)
-      const ribbonText = this.add.text(-w / 2 + 40, -h / 2 + 26, ribbon.text, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#ffffff', fontStyle: 'bold',
-      }).setOrigin(0.5).setAngle(-10)
-      container.add([ribbonBg, ribbonText])
-    }
-
-    const zone = this.makeHitZone(cx, cy, w, h)
-    this.addPressFeedback(zone, container, () => {
-      if (key === 'computer') {
-        this.openGameSetup()
-        return
-      }
-      this.showToast(`Opening ${label}...`)
-    })
-    return container
-  }
-
-  // ---------- chat bar ----------
-
-  createChatBar() {
-    const w = CONTENT_W
-    const h = 75
-    const cy = 918 + h / 2
-    this.makeRoundedRectTexture('chat-bar', w, h, 0x18234a, 0x18234a, h / 2, 0x3a4a78)
-
-    const container = this.add.container(W / 2, cy)
-    container.add(this.add.image(0, 0, 'chat-bar').setAlpha(0.9))
-    container.add(this.add.text(-w / 2 + 40, 0, '💬', { fontSize: 26 }).setOrigin(0.5))
-    container.add(
-      this.add.text(-w / 2 + 76, 0, 'Click here to chat', {
-        fontFamily: 'Verdana, sans-serif', fontSize: 18, color: '#cbd5e1',
-      }).setOrigin(0, 0.5)
-    )
-
-    const zone = this.makeHitZone(W / 2, cy, w, h)
-    this.addPressFeedback(zone, container, () => this.showToast('Opening chat...'))
-  }
-
-  // ---------- promo banners ----------
-
-  createBanners() {
-    const w = (CONTENT_W - 12) / 2
-    const h = 60
-    const cy = 1038 + h / 2
-
-    this.createBanner(MARGIN + w / 2, cy, w, h, {
-      key: 'banner-friend',
-      gradientTop: 0xff8a5c,
-      gradientBottom: 0xff5e3a,
-      icon: '👥',
-      text: '1 Friend Request',
-      textColor: '#ffffff',
-      onClick: () => this.showToast('Friend request opened'),
-    })
-
-    const ready = store.freeCoinsReady()
-    this.createBanner(MARGIN + w + 12 + w / 2, cy, w, h, {
-      key: `banner-coins-${ready ? 'on' : 'off'}`,
-      gradientTop: ready ? 0xffd85e : 0x8a7f5a,
-      gradientBottom: ready ? 0xffb020 : 0x6a6244,
-      icon: '🪙',
-      text: ready ? '5000 coins free!' : 'Come back later',
-      textColor: '#5a3d00',
-      onClick: () => {
-        if (!store.freeCoinsReady()) {
-          this.showToast('Free coins recharge every 20h')
-          return
-        }
-        store.claimFreeCoins(FREE_COINS_AMOUNT)
-        this.coinLabel.setText(this.formatCoins(store.coins))
-        this.tweens.add({ targets: this.coinLabel, scale: { from: 1.4, to: 1 }, duration: 300, ease: 'Back.easeOut' })
-        this.showToast(`+${FREE_COINS_AMOUNT.toLocaleString()} coins!`)
-        sfx.rune()
-        this.scene.restart()
-      },
-    })
-  }
-
-  createBanner(cx, cy, w, h, { key, gradientTop, gradientBottom, icon, text, textColor, onClick }) {
-    this.makeRoundedRectTexture(key, w, h, gradientTop, gradientBottom, h / 2)
-
-    const container = this.add.container(cx, cy)
-    container.add(this.add.image(0, 0, key))
-    container.add(this.add.text(-w / 2 + 32, 0, icon, { fontSize: 22 }).setOrigin(0.5))
-    container.add(
-      this.add.text(-w / 2 + 58, 0, text, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 15, color: textColor, fontStyle: 'bold',
-        wordWrap: { width: w - 90 },
-      }).setOrigin(0, 0.5)
-    )
-
-    const zone = this.makeHitZone(cx, cy, w, h)
-    this.addPressFeedback(zone, container, onClick)
-  }
-
-  // ---------- bottom nav ----------
-
-  createBottomNav() {
-    const h = 126
-    const cy = 1120 + h / 2
-    this.makeRoundedRectTexture('bottom-nav', CONTENT_W, h, 0xff6a3d, 0xff4757, 28)
-    this.add.image(W / 2, cy, 'bottom-nav')
-
-    const items = [
-      { icon: '👫', label: 'Friends', badge: '1' },
-      { icon: '🏆', label: 'Ranking' },
-      { icon: '➕', label: 'Invite' },
-      { icon: '📋', label: 'Mission' },
-      { icon: '🎒', label: 'Backpack' },
-      { icon: '🛒', label: 'Shop' },
-    ]
-    const slotW = CONTENT_W / items.length
-
-    items.forEach((item, i) => {
-      const cx = MARGIN + slotW / 2 + i * slotW
-      this.createNavItem(cx, cy, slotW, h, item)
-    })
-  }
-
-  createNavItem(cx, cy, slotW, slotH, { icon, label, badge }) {
-    const container = this.add.container(cx, cy)
-    const iconText = this.add.text(0, -20, icon, { fontSize: 30 }).setOrigin(0.5)
-    const labelText = this.add.text(0, 26, label, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(0.5)
-    container.add([iconText, labelText])
-
-    if (badge) {
-      const badgeBg = this.add.circle(16, -34, 11, 0xffffff).setStrokeStyle(2, 0xff3b30)
-      const badgeText = this.add.text(16, -34, badge, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 11, color: '#ff3b30', fontStyle: 'bold',
-      }).setOrigin(0.5)
-      container.add([badgeBg, badgeText])
-    }
-
-    const zone = this.makeHitZone(cx, cy, slotW, slotH)
-    this.addPressFeedback(zone, container, () => this.showToast(label))
   }
 
   // ---------- modal helpers ----------
@@ -461,7 +335,7 @@ export class HomeScene extends UIScene {
     this.makeRoundedRectTexture(key, cardW, heightPx, 0x2a1f52, 0x150d30, 26, 0x5a49a8)
     const card = this.add.container(W / 2, H / 2).setDepth(501)
     card.add(this.add.image(0, 0, key))
-    card.add(this.add.zone(0, 0, cardW, heightPx).setInteractive()) // eat taps on the card body
+    card.add(this.add.zone(0, 0, cardW, heightPx).setInteractive())
     card.add(this.add.text(0, -heightPx / 2 + 40, title, {
       fontFamily: 'Verdana, sans-serif', fontSize: 23, color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5))
@@ -475,7 +349,7 @@ export class HomeScene extends UIScene {
     card.add(closeZone)
 
     card.setScale(0.85).setAlpha(0)
-    this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 240, ease: 'Back.easeOut' })
+    this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: dur(DUR.base), ease: EASE.pop })
 
     this.modalParts = [dim, dimZone, card]
     return { card, cardW, cardH: heightPx }
@@ -538,11 +412,11 @@ export class HomeScene extends UIScene {
   openGameSetup(state) {
     const s = state || { opponents: 3, mode: 'cpu', difficulty: store.difficulty }
     const cardH = 430
-    const { card } = this.buildModal('NEW GAME', cardH)
+    const { card } = this.buildModal(t('setup.title'), cardH)
     const T = -cardH / 2
     const reopen = () => this.openGameSetup({ ...s })
 
-    this.modalLabel(card, T + 84, 'OPPONENTS')
+    this.modalLabel(card, T + 84, t('setup.opponents'))
     ;[1, 2, 3].forEach((n, i) => {
       this.modalChip(card, -96 + i * 96, T + 118, 80, `${n}`, s.opponents === n, () => {
         s.opponents = n
@@ -550,22 +424,21 @@ export class HomeScene extends UIScene {
       })
     })
 
-    this.modalLabel(card, T + 172, 'PLAY AGAINST')
-    this.modalChip(card, -84, T + 206, 156, 'Computer', s.mode === 'cpu', () => { s.mode = 'cpu'; reopen() })
-    this.modalChip(card, 84, T + 206, 156, 'Local', s.mode === 'local', () => { s.mode = 'local'; reopen() })
+    this.modalLabel(card, T + 172, t('setup.playAgainst'))
+    this.modalChip(card, -84, T + 206, 156, t('setup.computer'), s.mode === 'cpu', () => { s.mode = 'cpu'; reopen() })
+    this.modalChip(card, 84, T + 206, 156, t('setup.local'), s.mode === 'local', () => { s.mode = 'local'; reopen() })
 
     if (s.mode === 'cpu') {
-      this.modalLabel(card, T + 260, 'BOT DIFFICULTY')
+      this.modalLabel(card, T + 260, t('setup.difficulty'))
       ;['easy', 'normal', 'hard'].forEach((d, i) => {
-        this.modalChip(card, -116 + i * 116, T + 294, 108, d.toUpperCase(), s.difficulty === d, () => {
+        this.modalChip(card, -116 + i * 116, T + 294, 108, t(`common.${d}`), s.difficulty === d, () => {
           s.difficulty = d
           reopen()
         })
       })
     }
 
-    this.modalButton(card, 0, cardH / 2 - 46, 300, 'START MATCH', true, () => {
-      // blue seat (bottom-left, thumb-side) is always "you"
+    this.modalButton(card, 0, cardH / 2 - 46, 300, t('setup.start'), true, () => {
       const order = ['blue', 'green', 'yellow', 'red']
       const players = {}
       order.forEach((c, i) => {
@@ -582,8 +455,8 @@ export class HomeScene extends UIScene {
   // ---------- settings ----------
 
   openSettings() {
-    const cardH = 486
-    const { card, cardW } = this.buildModal('SETTINGS', cardH)
+    const cardH = 476
+    const { card, cardW } = this.buildModal(t('settings.title'), cardH)
     const T = -cardH / 2
     const rowLabelX = -cardW / 2 + 44
     const reopen = () => this.openSettings()
@@ -592,37 +465,34 @@ export class HomeScene extends UIScene {
       card.add(this.add.text(rowLabelX, y, label, {
         fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#e4dbff', fontStyle: 'bold',
       }).setOrigin(0, 0.5))
-      this.modalChip(card, cardW / 2 - 128, y, 76, 'ON', value, onOn)
-      this.modalChip(card, cardW / 2 - 46, y, 76, 'OFF', !value, onOff)
+      this.modalChip(card, cardW / 2 - 128, y, 76, t('common.on'), value, onOn)
+      this.modalChip(card, cardW / 2 - 46, y, 76, t('common.off'), !value, onOff)
     }
 
-    toggleRow(T + 82, 'Sound', store.sound,
+    toggleRow(T + 76, t('settings.sound'), store.sound,
       () => { store.setSetting('sound', true); sfx.tap(); reopen() },
       () => { store.setSetting('sound', false); reopen() })
-    toggleRow(T + 134, 'Haptics', store.haptics,
+    toggleRow(T + 124, t('settings.haptics'), store.haptics,
       () => { store.setSetting('haptics', true); sfx.buzz(20); reopen() },
       () => { store.setSetting('haptics', false); reopen() })
 
-    this.modalLabel(card, T + 190, 'DEFAULT BOT DIFFICULTY')
+    this.modalLabel(card, T + 176, t('settings.language'))
+    LOCALES.forEach((loc, i) => {
+      this.modalChip(card, -60 + i * 120, T + 210, 108, LOCALE_LABEL[loc], getLocale() === loc, () => {
+        setLocale(loc)
+        reopen()
+      })
+    })
+
+    this.modalLabel(card, T + 264, t('settings.difficulty'))
     ;['easy', 'normal', 'hard'].forEach((d, i) => {
-      this.modalChip(card, -116 + i * 116, T + 224, 108, d.toUpperCase(), store.difficulty === d, () => {
+      this.modalChip(card, -116 + i * 116, T + 298, 108, t(`common.${d}`), store.difficulty === d, () => {
         store.setSetting('difficulty', d)
         reopen()
       })
     })
 
-    const st = store.stats
-    const winRate = st.games ? Math.round((st.wins / st.games) * 100) : 0
-    this.makeRoundedRectTexture('settings-stats', cardW - 72, 62, 0x1c1442, 0x160f36, 14, 0x453a7e)
-    card.add(this.add.image(0, T + 300, 'settings-stats'))
-    card.add(this.add.text(0, T + 286, `${st.games} games   ·   ${st.wins} wins   ·   ${winRate}% win rate`, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#d9ccff', fontStyle: 'bold',
-    }).setOrigin(0.5))
-    card.add(this.add.text(0, T + 310, `${st.captures} captures   ·   best streak ${st.bestStreak}`, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#a99cd6',
-    }).setOrigin(0.5))
-
-    this.modalButton(card, 0, cardH / 2 - 108, 300, 'RESET PROGRESS', false, () => {
+    this.modalButton(card, 0, cardH / 2 - 108, 300, t('settings.reset'), false, () => {
       if (this.confirmReset) {
         store.reset()
         this.closeModal()
@@ -630,9 +500,51 @@ export class HomeScene extends UIScene {
         return
       }
       this.confirmReset = true
-      this.showToast('Tap Reset again to confirm')
+      this.showToast(t('settings.resetConfirm'))
       this.time.delayedCall(2500, () => { this.confirmReset = false })
     })
-    this.modalButton(card, 0, cardH / 2 - 46, 300, 'DONE', true, () => this.closeModal())
+    this.modalButton(card, 0, cardH / 2 - 46, 300, t('common.done'), true, () => this.closeModal())
+  }
+
+  // ---------- stats ----------
+
+  openStats() {
+    const cardH = 452
+    const { card, cardW } = this.buildModal(t('stats.title'), cardH)
+    const T = -cardH / 2
+    const st = store.stats
+    const winRate = st.games ? Math.round((st.wins / st.games) * 100) : 0
+
+    card.add(this.add.text(0, T + 82, t('home.level', { n: store.level }), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 26, color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5))
+    const barW = cardW - 120
+    const pct = Phaser.Math.Clamp(store.xp / xpForLevel(store.level), 0, 1)
+    card.add(this.add.rectangle(0, T + 116, barW, 10, 0x120c30).setStrokeStyle(1, 0x4a3d8f))
+    card.add(this.add.rectangle(-barW / 2, T + 116, Math.max(2, barW * pct), 10, 0x7cffb2).setOrigin(0, 0.5))
+    card.add(this.add.text(0, T + 136, t('home.xpOf', { a: Math.round(store.xp), b: xpForLevel(store.level) }), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 11, color: '#a99cd6',
+    }).setOrigin(0.5))
+
+    const rows = [
+      [t('stats.matches'), `${st.games}`],
+      [t('stats.wins'), `${st.wins}  (${winRate}%)`],
+      [t('stats.captures'), `${st.captures}`],
+      [t('stats.streak'), `${st.bestStreak}`],
+      [t('stats.coins'), store.coins.toLocaleString()],
+    ]
+    this.makeRoundedRectTexture('stats-row', cardW - 64, 40, 0x33265f, 0x2a1f52, 10)
+    rows.forEach(([k, v], i) => {
+      const y = T + 176 + i * 46
+      card.add(this.add.image(0, y, 'stats-row'))
+      card.add(this.add.text(-cardW / 2 + 44, y, k, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#c9bdf2',
+      }).setOrigin(0, 0.5))
+      card.add(this.add.text(cardW / 2 - 44, y, v, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(1, 0.5))
+    })
+
+    this.modalButton(card, 0, cardH / 2 - 46, 300, t('common.done'), true, () => this.closeModal())
   }
 }

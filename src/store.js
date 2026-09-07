@@ -1,17 +1,17 @@
 // Player progression + settings, persisted to localStorage.
 // One module-level singleton so every scene reads the same live values.
 
-const KEY = 'instant_ludo_save_v1'
+const KEY = 'instant_ludo_save_v2'
 const FREE_COINS_COOLDOWN = 20 * 60 * 60 * 1000 // 20h
 
 const DEFAULTS = {
-  coins: 12750,
-  gems: 390,
-  level: 39,
+  coins: 200,
+  level: 1,
   xp: 0,
   sound: true,
   haptics: true,
   difficulty: 'normal', // 'easy' | 'normal' | 'hard'
+  locale: 'en', // 'en' | 'mn'
   lastFreeCoins: 0,
   stats: { games: 0, wins: 0, captures: 0, bestStreak: 0, streak: 0 },
 }
@@ -50,12 +50,12 @@ class Store {
   }
 
   get coins() { return this.data.coins }
-  get gems() { return this.data.gems }
   get level() { return this.data.level }
   get xp() { return this.data.xp }
   get sound() { return this.data.sound }
   get haptics() { return this.data.haptics }
   get difficulty() { return this.data.difficulty }
+  get locale() { return this.data.locale }
   get stats() { return this.data.stats }
 
   setSetting(key, value) {
@@ -67,12 +67,6 @@ class Store {
     this.data.coins = Math.max(0, this.data.coins + amount)
     this.save()
     return this.data.coins
-  }
-
-  addGems(amount) {
-    this.data.gems = Math.max(0, this.data.gems + amount)
-    this.save()
-    return this.data.gems
   }
 
   // Returns how many levels were gained so the UI can celebrate.
@@ -104,6 +98,11 @@ class Store {
 
   freeCoinsReady() {
     return Date.now() - this.data.lastFreeCoins >= FREE_COINS_COOLDOWN
+  }
+
+  // ms until the next free-coins claim (0 when ready)
+  freeCoinsRemaining() {
+    return Math.max(0, this.data.lastFreeCoins + FREE_COINS_COOLDOWN - Date.now())
   }
 
   claimFreeCoins(amount) {

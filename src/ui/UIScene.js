@@ -1,8 +1,98 @@
 import Phaser from 'phaser'
 import { W, H } from '../config.js'
+import { DUR, EASE, dur, prefersReducedMotion } from './tokens.js'
 
 // Shared visual/interaction helpers for every scene in the app.
 export class UIScene extends Phaser.Scene {
+  // ---------- motion primitives ----------
+  // Every entrance/exit in the app should go through one of these so timing
+  // and easing stay consistent. All honour prefers-reduced-motion via dur().
+
+  // Scale + fade a target in from `from` scale. Returns the tween.
+  popIn(target, { from = 0.6, delay = 0, duration = DUR.base, onComplete } = {}) {
+    target.setScale(from)
+    if (target.setAlpha) target.setAlpha(0)
+    return this.tweens.add({
+      targets: target,
+      scale: target.getData?.('baseScale') ?? 1,
+      alpha: 1,
+      delay: dur(delay),
+      duration: dur(duration),
+      ease: EASE.pop,
+      onComplete,
+    })
+  }
+
+  popOut(target, { to = 0.7, duration = DUR.fast, onComplete } = {}) {
+    return this.tweens.add({
+      targets: target,
+      scale: to,
+      alpha: 0,
+      duration: dur(duration),
+      ease: EASE.out,
+      onComplete: () => {
+        onComplete?.()
+      },
+    })
+  }
+
+  // Slide + fade in from an offset (dx,dy). Good for bars and panels.
+  slideIn(target, { dx = 0, dy = 24, delay = 0, duration = DUR.entrance, onComplete } = {}) {
+    const x = target.x
+    const y = target.y
+    target.setPosition(x + dx, y + dy)
+    if (target.setAlpha) target.setAlpha(0)
+    return this.tweens.add({
+      targets: target,
+      x,
+      y,
+      alpha: 1,
+      delay: dur(delay),
+      duration: dur(duration),
+      ease: EASE.out,
+      onComplete,
+    })
+  }
+
+  // Cascade a list of targets in with a per-item stagger.
+  enterStagger(targets, { dx = 0, dy = 20, step = 60, duration = DUR.base, delay = 0 } = {}) {
+    targets.forEach((t, i) => this.slideIn(t, { dx, dy, delay: delay + i * step, duration }))
+  }
+
+  // A single quick "notice me" bounce.
+  pulseOnce(target, { scale = 1.12, duration = DUR.base } = {}) {
+    if (prefersReducedMotion) return
+    const base = target.getData?.('baseScale') ?? 1
+    this.tweens.add({
+      targets: target,
+      scale: { from: base * scale, to: base },
+      duration: dur(duration),
+      ease: EASE.pop,
+    })
+  }
+
+  // Tween a number in a Text object from its current value to `to`.
+  countUp(textObj, to, { duration = DUR.slow, format = (n) => `${Math.round(n)}`, onComplete } = {}) {
+    const from = parseFloat(String(textObj.text).replace(/[^0-9.-]/g, '')) || 0
+    if (prefersReducedMotion || from === to) {
+      textObj.setText(format(to))
+      onComplete?.()
+      return
+    }
+    const state = { v: from }
+    this.tweens.add({
+      targets: state,
+      v: to,
+      duration: dur(duration),
+      ease: EASE.out,
+      onUpdate: () => textObj.setText(format(state.v)),
+      onComplete: () => {
+        textObj.setText(format(to))
+        onComplete?.()
+      },
+    })
+  }
+
   makeBackgroundTexture(key, topColor, bottomColor) {
     if (this.textures.exists(key)) return
     const canvas = document.createElement('canvas')
@@ -77,11 +167,20 @@ export class UIScene extends Phaser.Scene {
   }
 
   addPressFeedback(zone, animateTarget, onClick) {
-    zone.on('pointerover', () => this.tweens.add({ targets: animateTarget, scale: 1.04, duration: 100 }))
-    zone.on('pointerout', () => this.tweens.add({ targets: animateTarget, scale: 1, duration: 100 }))
-    zone.on('pointerdown', () => this.tweens.add({ targets: animateTarget, scale: 0.94, duration: 80 }))
+    const base = animateTarget.getData?.('baseScale') ?? 1
+    const to = (m) => this.tweens.add({
+      targets: animateTarget, scale: base * m, duration: dur(90), ease: EASE.out,
+    })
+    zone.on('pointerover', () => to(1.04))
+    zone.on('pointerout', () => to(1))
+    zone.on('pointerdown', () => to(0.93))
     zone.on('pointerup', () => {
-      this.tweens.add({ targets: animateTarget, scale: 1.04, duration: 100 })
+      this.tweens.add({
+        targets: animateTarget,
+        scale: { from: base * 0.93, to: base },
+        duration: dur(220),
+        ease: EASE.pop,
+      })
       onClick?.()
     })
   }
@@ -124,7 +223,15 @@ export class UIScene extends Phaser.Scene {
   }
 
   goTo(sceneKey, data) {
-    this.cameras.main.fadeOut(200, 0, 0, 0)
+    if (this._leaving) return
+    this._leaving = true
+    const ms = dur(220)
+    this.cameras.main.fadeOut(ms, 8, 6, 24)
     this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start(sceneKey, data))
+  }
+
+  // Standard scene-in: fade the camera up from the app's deep background.
+  enterScene() {
+    this.cameras.main.fadeIn(dur(260), 8, 6, 24)
   }
 }

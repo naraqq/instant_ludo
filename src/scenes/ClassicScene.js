@@ -1,9 +1,11 @@
 import Phaser from 'phaser'
 import { W, H, CONTENT_W } from '../config.js'
 import { UIScene } from '../ui/UIScene.js'
+import { DUR, EASE, dur, prefersReducedMotion } from '../ui/tokens.js'
 import { sfx } from '../audio.js'
 import { store } from '../store.js'
 import { chooseAiMove, chooseAiPower, bestForcedDice } from '../ai.js'
+import { t } from '../i18n.js'
 import {
   COLORS,
   COLOR_HEX,
@@ -18,22 +20,36 @@ import {
   TRACK,
 } from './board.js'
 
-const TILE = 44
+// Board fills the screen width (15 tiles = 720px), leaving generous top and
+// bottom strips for the (bigger) player profiles.
+const TILE = 48
 const BOARD_SIZE = TILE * 15
-const BOARD_X = (W - BOARD_SIZE) / 2
-const BOARD_Y = 156
+const BOARD_X = 0
+const BOARD_Y = (H - BOARD_SIZE) / 2 // board centred vertically
 const BOARD_BOTTOM = BOARD_Y + BOARD_SIZE
 const TURN_SECONDS = 30
 
-const BAR_Y = 1224 // bottom action bar
+const BAR_Y = 1206 // bottom action bar
 
-// Where each player's avatar pod + dice sit, relative to their board corner.
+// House rules (tune freely)
+const SIX_PITY_LIMIT = 3          // force a 6 after this many straight non-6 rolls, per player
+const CAPTURE_GRANTS_CHARGE = true // landing on an opponent's pawn awards a power charge
+const CAPTURE_CHARGE_POOL = ['fire', 'water', 'earth']
+const POWER_SLOT_KEYS = ['fire', 'water', 'earth'] // buttons in the bottom bar (air auto-applies)
+
+// Avatar profiles live in the strips above / below the board, not on it.
+const POD_R = 36
 const POD = {
-  red: { ax: 46, ay: BOARD_Y - 24, dx: BOARD_X + 118, dy: BOARD_Y - 46, dir: 'up' },
-  green: { ax: W - 46, ay: BOARD_Y - 24, dx: BOARD_X + BOARD_SIZE - 118, dy: BOARD_Y - 46, dir: 'up' },
-  blue: { ax: 46, ay: BOARD_BOTTOM + 24, dx: BOARD_X + 118, dy: BOARD_BOTTOM + 50, dir: 'down' },
-  yellow: { ax: W - 46, ay: BOARD_BOTTOM + 24, dx: BOARD_X + BOARD_SIZE - 118, dy: BOARD_BOTTOM + 50, dir: 'down' },
+  red: { ax: 78, ay: 116, dx: 196, dy: 120, dir: 'up' },
+  green: { ax: W - 78, ay: 116, dx: W - 196, dy: 120, dir: 'up' },
+  blue: { ax: 78, ay: BOARD_BOTTOM + 76, dx: 196, dy: BOARD_BOTTOM + 80, dir: 'down' },
+  yellow: { ax: W - 78, ay: BOARD_BOTTOM + 76, dx: W - 196, dy: BOARD_BOTTOM + 80, dir: 'down' },
 }
+
+// track index of each colour's entry square (also a safe square)
+const START_OWNER = Object.fromEntries(
+  Object.entries(START_INDEX).map(([c, i]) => [i, c])
+)
 
 export class ClassicScene extends UIScene {
   constructor() {
@@ -91,10 +107,12 @@ export class ClassicScene extends UIScene {
     this.makeBackgroundTexture('bg-classic', '#35246f', '#4f3a9e')
     this.makeDiceTextures()
     this.makeElementalEffectTextures()
-    this.load.image('rune-sheet', 'assets/runes/elemental-powerups-sheet.png')
-    Object.values(PAWN_ASSETS).forEach((asset) => {
-      this.load.image(`pawn-src-${asset}`, `assets/pawns/${asset}.png`)
+    // v2 art: pre-cropped, pre-transparent character + rune sprites
+    Object.entries(PAWN_ASSETS).forEach(([color, asset]) => {
+      this.load.image(`pawn-${color}`, `assets/sprites/pawn-${asset}.png`)
+      this.load.image(`pawn-${color}-sm`, `assets/sprites/pawn-${asset}-sm.png`)
     })
+    POWER_TYPES.forEach((type) => this.load.image(`rune-${type}`, `assets/sprites/rune-${type}.png`))
   }
 
   create() {
@@ -119,6 +137,8 @@ export class ClassicScene extends UIScene {
     this.finishOrder = []
     this.gameOver = false
     this.captureCounts = Object.fromEntries(COLORS.map((c) => [c, 0]))
+    this.sixPity = Object.fromEntries(COLORS.map((c) => [c, 0]))
+    this.sixForced = new Set()
     this.onRollResolved = null
     this.turnTimer = null
     this.turnSecondsLeft = TURN_SECONDS
@@ -128,15 +148,55 @@ export class ClassicScene extends UIScene {
     this.createTopBar()
     this.createBoard()
     this.createPlayers()
-    this.createRuneTextures()
     this.createBottomBar()
-    this.createPawnTextures()
     this.createPawns()
     this.createPowerRunes()
     this.reflowPawns(false)
     this.refreshTurnUI()
-    this.cameras.main.fadeIn(200, 0, 0, 0)
-    this.time.delayedCall(500, () => this.beginTurn())
+    this.enterScene()
+    this.playEntrance()
+  }
+
+  // Choreographed scene-in: board settles, pods drop in, bar rises, then play.
+  playEntrance() {
+    if (prefersReducedMotion) {
+      this.time.delayedCall(120, () => this.beginTurn())
+      return
+    }
+
+    const sprites = [...this.pawnViews.values(), ...this.runeViews.values()]
+    sprites.forEach((v) => this.tweens.killTweensOf(v))
+    sprites.forEach((v) => v.setAlpha(0))
+
+    this.boardLayer.setAlpha(0).setScale(0.97)
+    this.tweens.add({
+      targets: this.boardLayer, alpha: 1, scale: 1,
+      duration: dur(DUR.entrance), ease: EASE.out,
+    })
+    this.time.delayedCall(dur(180), () =>
+      sprites.forEach((v) => this.tweens.add({ targets: v, alpha: 1, duration: dur(DUR.base) }))
+    )
+
+    const activePods = this.activeColors.map((c) => this.playerBadges[c])
+    activePods.forEach((p, i) => {
+      this.tweens.killTweensOf(p)
+      p.setScale(0).setAlpha(0)
+      this.tweens.add({
+        targets: p,
+        scale: 1,
+        alpha: this.activeColors[i] === this.currentColor ? 1 : 0.62,
+        delay: dur(240 + i * 70),
+        duration: dur(DUR.base),
+        ease: EASE.pop,
+      })
+    })
+
+    // power buttons appear on their own as the player earns charges
+
+    this.time.delayedCall(dur(720), () => {
+      this.refreshTurnUI()
+      this.beginTurn()
+    })
   }
 
   createBackdrop() {
@@ -144,112 +204,115 @@ export class ClassicScene extends UIScene {
     g.fillStyle(0x060b22, 0.18)
     g.fillRect(0, 0, W, H)
     g.fillStyle(0xffffff, 0.03)
-    g.fillCircle(96, 210, 120)
-    g.fillCircle(636, 980, 150)
-    g.fillCircle(120, 1120, 90)
-
-    // faint 4-colour pinwheel crest in the open area below the board
-    const cx = W / 2
-    const cy = (BOARD_BOTTOM + (BAR_Y - 44)) / 2 + 4
-    const r = 118
-    const quads = [
-      [COLOR_HEX.red, 180, 270],
-      [COLOR_HEX.green, 270, 360],
-      [COLOR_HEX.yellow, 0, 90],
-      [COLOR_HEX.blue, 90, 180],
-    ]
-    quads.forEach(([col, a0, a1]) => {
-      const cg = this.add.graphics().setDepth(1)
-      cg.fillStyle(col, 0.06)
-      cg.slice(cx, cy, r, Phaser.Math.DegToRad(a0), Phaser.Math.DegToRad(a1))
-      cg.fillPath()
-    })
-    this.add.circle(cx, cy, r, 0xffffff, 0).setStrokeStyle(2, 0xffffff, 0.05).setDepth(1)
+    g.fillCircle(110, 150, 120)
+    g.fillCircle(620, 1150, 140)
   }
 
-  // Top strip: back / trophy / share on the left, coin pill on the right.
+  // Top strip: leave button on the left, coin count on the right.
   createTopBar() {
     const y = 46
     this.makeRoundedRectTexture('topbtn', 50, 50, 0x3b2c78, 0x2a1e5c, 15, 0x6a58b8)
-    const iconBtn = (x, glyph, onTap) => {
-      const img = this.add.image(x, y, 'topbtn').setDepth(6).setAlpha(0.96)
-      this.add.text(x, y - 1, glyph, { fontSize: 22 }).setOrigin(0.5).setDepth(7)
-      const z = this.makeHitZone(x, y, 52, 52)
-      this.addPressFeedback(z, img, () => { sfx.tap(); onTap() })
-    }
-    iconBtn(44, '‹', () => this.goTo('Home'))
-    iconBtn(102, '🏆', () => this.showToast('Leaderboard coming soon'))
-    iconBtn(160, '⤴', () => this.showToast('Invite friends — coming soon'))
+    const back = this.add.image(44, y, 'topbtn').setDepth(6).setAlpha(0.96)
+    this.add.text(44, y - 1, '‹', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 26, color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(7)
+    this.addPressFeedback(this.makeHitZone(44, y, 52, 52), back, () => {
+      sfx.tap()
+      if (this.gameOver) {
+        this.goTo('Home')
+        return
+      }
+      if (this._confirmLeave) {
+        this.goTo('Home')
+        return
+      }
+      this._confirmLeave = true
+      this.showToast(t('classic.leaveConfirm'))
+      this.time.delayedCall(2500, () => { this._confirmLeave = false })
+    })
 
-    this.makeRoundedRectTexture('coin-pill', 168, 46, 0x2a1e5c, 0x211748, 23, 0x6a58b8)
-    const pillX = W - 44 - 84
+    this.makeRoundedRectTexture('coin-pill', 132, 46, 0x2a1e5c, 0x211748, 23, 0x6a58b8)
+    const pillX = W - 44 - 66
     this.add.image(pillX, y, 'coin-pill').setDepth(6).setAlpha(0.96)
-    this.add.circle(pillX - 60, y, 15, 0xffcf3f).setStrokeStyle(2, 0xffe9a3).setDepth(7)
-    this.add.text(pillX - 60, y - 1, '★', { fontSize: 15, color: '#8a5a00' }).setOrigin(0.5).setDepth(8)
-    this.coinText = this.add.text(pillX - 34, y - 1, store.coins.toLocaleString(), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 18, color: '#ffe27a', fontStyle: 'bold',
+    this.add.circle(pillX - 42, y, 14, 0xffcf3f).setStrokeStyle(2, 0xffe9a3).setDepth(7)
+    this.add.text(pillX - 42, y - 1, '★', { fontSize: 14, color: '#8a5a00' }).setOrigin(0.5).setDepth(8)
+    this.coinText = this.add.text(pillX - 18, y - 1, store.coins.toLocaleString(), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#ffe27a', fontStyle: 'bold',
     }).setOrigin(0, 0.5).setDepth(8)
-    const plus = this.add.circle(pillX + 66, y, 17, 0x34c759).setStrokeStyle(2, 0x9affc0).setDepth(7)
-    this.add.text(pillX + 66, y - 2, '+', {
-      fontFamily: 'Verdana, sans-serif', fontSize: 22, color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(8)
-    const pz = this.makeHitZone(pillX + 66, y, 40, 40)
-    this.addPressFeedback(pz, plus, () => this.showToast('Shop — coming soon'))
-
-    // status line lives quietly in the open area below the board
-    const midY = (BOARD_BOTTOM + (BAR_Y - 44)) / 2
-    this.helpText = this.add.text(W / 2, midY - 16, '', {
-      fontFamily: 'Verdana, sans-serif', fontSize: 20, color: '#efe6ff', fontStyle: 'bold',
-      align: 'center', wordWrap: { width: CONTENT_W - 40 },
-    }).setOrigin(0.5).setDepth(8)
-    this.rollHint = this.add.text(W / 2, midY + 16, '', {
-      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#9f90d8',
-    }).setOrigin(0.5).setDepth(8)
   }
 
   createBoard() {
     const boardSize = BOARD_SIZE
-    this.add.rectangle(BOARD_X + boardSize / 2 + 9, BOARD_Y + boardSize / 2 + 14, boardSize + 30, boardSize + 30, 0x000000, 0.28)
-    this.add.rectangle(BOARD_X + boardSize / 2, BOARD_Y + boardSize / 2, boardSize + 22, boardSize + 22, 0x19304e, 1)
-    this.add.rectangle(BOARD_X + boardSize / 2, BOARD_Y + boardSize / 2, boardSize + 10, boardSize + 10, 0x0b1526, 0.22)
+    this.boardLayer = this.add.container(0, 0).setDepth(2)
+    this._boardExtras = []
+
+    // full-bleed board: just soft edge accents top & bottom
+    this.boardLayer.add([
+      this.add.rectangle(W / 2, BOARD_Y - 3, W, 6, 0x000000, 0.32),
+      this.add.rectangle(W / 2, BOARD_BOTTOM + 3, W, 6, 0x000000, 0.32),
+      this.add.rectangle(W / 2, BOARD_Y + 1, W, 2, 0xffffff, 0.25),
+    ])
 
     const g = this.add.graphics()
     g.fillStyle(0xffffff, 1)
     g.fillRect(BOARD_X, BOARD_Y, boardSize, boardSize)
     COLORS.forEach((color) => this.drawYard(g, color))
-    TRACK.forEach(([gx, gy], i) => this.drawSquare(g, gx, gy, SAFE_STOPS.has(i) ? 0xffe88c : 0xf8fbff))
+    TRACK.forEach(([gx, gy], i) => {
+      const owner = START_OWNER[i]
+      const fill = owner ? COLOR_LIGHT[owner] : SAFE_STOPS.has(i) ? 0xffe88c : 0xf8fbff
+      this.drawSquare(g, gx, gy, fill, 1, null, { safe: SAFE_STOPS.has(i), owner })
+    })
     Object.entries(HOME_LANES).forEach(([color, cells]) => {
       cells.forEach(([gx, gy]) => this.drawSquare(g, gx, gy, COLOR_HEX[color], 1, color))
     })
     this.drawCenter(g)
-    this.createHomeLabels()
+    this.boardLayer.add(g)
+    this.boardLayer.add(this._boardExtras)
+    this._boardExtras = null
+
+    this.createQuadrantFx()
   }
 
-  createHomeLabels() {
-    const spots = {
-      red: [3, 0.62],
-      green: [12, 0.62],
-      blue: [3, 14.38],
-      yellow: [12, 14.38],
-    }
-    this.homeLabels = {}
-    Object.entries(spots).forEach(([color, [gx, gy]]) => {
-      if (!this.activeColors.includes(color)) return
-      const { x, y } = this.gridToPixel(gx, gy)
-      const t = this.add.text(x, y, this.playerName(color), {
-        fontFamily: 'Verdana, sans-serif', fontSize: 15, color: '#ffffff', fontStyle: 'bold',
-      }).setOrigin(0.5).setDepth(15).setStroke('#00000055', 4)
-      this.homeLabels[color] = t
+  // A colour wash over each home quadrant that pulses on that player's turn.
+  createQuadrantFx() {
+    this.quadFx = {}
+    COLORS.forEach((color) => {
+      const [bx, by] = YARDS[color].box
+      const rect = this.add
+        .rectangle(
+          BOARD_X + (bx + 3) * TILE,
+          BOARD_Y + (by + 3) * TILE,
+          TILE * 6,
+          TILE * 6,
+          COLOR_LIGHT[color],
+          0
+        )
+        .setDepth(3)
+      this.quadFx[color] = rect
     })
   }
 
   playerName(color) {
-    if (color === this.youColor) return 'You'
+    if (color === this.youColor) return t('classic.you')
     if (this.isBot(color)) {
       const botIdx = this.activeColors.filter((c) => this.isBot(c)).indexOf(color) + 1
-      return `CPU ${botIdx}`
+      return t('classic.cpu', { n: botIdx })
     }
-    return color[0].toUpperCase() + color.slice(1)
+    return t(`color.${color}`)
+  }
+
+  // A centred 2x2 of home slots inside the white holder, spaced for the
+  // (tall, feet-anchored) character art.
+  yardSlots(color) {
+    const [bx, by] = YARDS[color].box
+    const cols = [bx + 2.1, bx + 3.9]
+    const rows = [by + 2.3, by + 4.15]
+    return [
+      [cols[0], rows[0]],
+      [cols[1], rows[0]],
+      [cols[0], rows[1]],
+      [cols[1], rows[1]],
+    ]
   }
 
   drawYard(g, color) {
@@ -268,13 +331,13 @@ export class ClassicScene extends UIScene {
     g.fillRoundedRect(x + TILE + 4, y + TILE + 7, TILE * 4, TILE * 4, 18)
     g.fillStyle(0xffffff, 1)
     g.fillRoundedRect(x + TILE, y + TILE, TILE * 4, TILE * 4, 18)
-    YARDS[color].pawns.forEach(([px, py]) => {
-      g.fillStyle(0xeff4fb, 1)
-      g.fillCircle(BOARD_X + px * TILE, BOARD_Y + py * TILE, 18)
+    this.yardSlots(color).forEach(([px, py]) => {
+      g.fillStyle(0xe6ebf5, 1)
+      g.fillEllipse(BOARD_X + px * TILE, BOARD_Y + (py + 0.28) * TILE, 34, 14)
     })
   }
 
-  drawSquare(g, gx, gy, color, alpha = 1, laneColor) {
+  drawSquare(g, gx, gy, color, alpha = 1, laneColor, opts = {}) {
     const x = BOARD_X + gx * TILE
     const y = BOARD_Y + gy * TILE
     g.fillStyle(color, alpha)
@@ -285,6 +348,13 @@ export class ClassicScene extends UIScene {
       g.fillStyle(COLOR_DARK[laneColor], 0.08)
       g.fillRect(x, y + TILE - 4, TILE, 4)
       g.lineStyle(1, COLOR_DARK[laneColor], 0.36)
+      g.strokeRect(x, y, TILE, TILE)
+    } else if (opts.owner) {
+      g.fillStyle(0xffffff, 0.22)
+      g.fillRect(x, y, TILE, 5)
+      g.fillStyle(COLOR_DARK[opts.owner], 0.28)
+      g.fillRect(x, y + TILE - 5, TILE, 5)
+      g.lineStyle(1.5, COLOR_DARK[opts.owner], 0.5)
       g.strokeRect(x, y, TILE, TILE)
     } else if (color !== 0xf8fbff) {
       g.fillStyle(0xffffff, 0.18)
@@ -297,13 +367,13 @@ export class ClassicScene extends UIScene {
       g.lineStyle(1, 0x8790a2, 0.38)
       g.strokeRect(x, y, TILE, TILE)
     }
-    if (SAFE_STOPS.has(TRACK.findIndex(([tx, ty]) => tx === gx && ty === gy))) {
-      this.add.text(x + TILE / 2, y + TILE / 2, '*', {
+    if (opts.safe) {
+      this._boardExtras?.push(this.add.text(x + TILE / 2, y + TILE / 2, '★', {
         fontFamily: 'Verdana, sans-serif',
         fontSize: 16,
-        color: '#7d5c00',
+        color: opts.owner ? '#ffffff' : '#7d5c00',
         fontStyle: 'bold',
-      }).setOrigin(0.5).setAlpha(0.5)
+      }).setOrigin(0.5).setAlpha(opts.owner ? 0.85 : 0.45))
     }
   }
 
@@ -318,31 +388,38 @@ export class ClassicScene extends UIScene {
     g.fillTriangle(BOARD_X + 9 * TILE, BOARD_Y + 6 * TILE, cx, cy, BOARD_X + 9 * TILE, BOARD_Y + 9 * TILE)
     g.fillStyle(COLOR_HEX.blue, 1)
     g.fillTriangle(BOARD_X + 6 * TILE, BOARD_Y + 9 * TILE, cx, cy, BOARD_X + 9 * TILE, BOARD_Y + 9 * TILE)
-    this.add.text(cx, cy, '*', {
+    this._boardExtras?.push(this.add.text(cx, cy, '★', {
       fontFamily: 'Verdana, sans-serif',
-      fontSize: 36,
+      fontSize: 34,
       color: '#ffffff',
       fontStyle: 'bold',
-    }).setOrigin(0.5).setStroke('#00000033', 4)
+    }).setOrigin(0.5).setStroke('#00000033', 4))
   }
 
   createPlayers() {
     this.playerBadges = {}
     this.cornerDice = {}
-    const faces = { red: '🔥', green: '🌿', yellow: '💨', blue: '💧' }
+    this.makeRoundedRectTexture('pod-tag', 96, 24, 0x1a1240, 0x120c30, 12, 0x5847a0)
 
     COLORS.forEach((color) => {
       const pod = POD[color]
       const c = this.add.container(pod.ax, pod.ay).setDepth(30)
-      c.add(this.add.circle(3, 4, 24, 0x000000, 0.32))
-      const ring = this.add.circle(0, 0, 28, COLOR_HEX[color], 0.001)
+      c.add(this.add.circle(4, 6, POD_R, 0x000000, 0.32))
+      const ring = this.add.circle(0, 0, POD_R + 6, COLOR_HEX[color], 0.001)
       ring.name = 'ring'
       c.add(ring)
-      c.add(this.add.circle(0, 0, 23, 0x2a1f56).setStrokeStyle(4, COLOR_HEX[color]))
-      c.add(this.add.text(0, 1, faces[color], { fontSize: 22 }).setOrigin(0.5))
+      c.add(this.add.circle(0, 0, POD_R, 0x241a4e).setStrokeStyle(5, COLOR_HEX[color]))
+      c.add(this.add.image(1, POD_R - 4, `pawn-${color}-sm`).setOrigin(0.5, 1).setScale(66 / 120))
       const arc = this.add.graphics()
       arc.name = 'arc'
       c.add(arc)
+
+      const tagY = pod.dir === 'up' ? POD_R + 20 : -(POD_R + 20)
+      c.add(this.add.image(0, tagY, 'pod-tag').setAlpha(0.96))
+      c.add(this.add.text(0, tagY - 1, this.playerName(color), {
+        fontFamily: 'Verdana, sans-serif', fontSize: 12,
+        color: color === this.youColor ? '#ffe27a' : '#ffffff', fontStyle: 'bold',
+      }).setOrigin(0.5))
 
       this.playerBadges[color] = c
       this.cornerDice[color] = this.createCornerDice(color)
@@ -356,15 +433,15 @@ export class ClassicScene extends UIScene {
   createCornerDice(color) {
     const pod = POD[color]
     const container = this.add.container(pod.dx, pod.dy).setDepth(34)
-    this.makeRoundedRectTexture(`dice-well-${color}`, 64, 64, COLOR_HEX[color], COLOR_DARK[color], 15, 0xffffff)
-    const glow = this.add.circle(0, 0, 42, 0xffffff, 0)
+    this.makeRoundedRectTexture(`dice-well-${color}`, 66, 66, COLOR_HEX[color], COLOR_DARK[color], 16, 0xffffff)
+    const glow = this.add.circle(0, 0, 44, 0xffffff, 0)
     glow.name = 'glow'
-    const shadow = this.add.ellipse(3, 28, 54, 13, 0x000000, 0.3)
+    const shadow = this.add.ellipse(3, 30, 56, 14, 0x000000, 0.3)
     const well = this.add.image(0, 0, `dice-well-${color}`).setAlpha(0.98)
-    const face = this.add.image(0, -1, 'dice-1').setScale(0.58)
+    const face = this.add.image(0, -1, 'dice-1').setScale(0.6)
     container.add([glow, shadow, well, face])
     container.setVisible(false)
-    const zone = this.makeHitZone(pod.dx, pod.dy, 78, 78)
+    const zone = this.makeHitZone(pod.dx, pod.dy, 82, 82)
     this.addPressFeedback(zone, container, () => {
       if (!this.isBot(this.currentColor)) this.rollDice()
     })
@@ -372,54 +449,37 @@ export class ClassicScene extends UIScene {
   }
 
   createBottomBar() {
-    this.makeRoundedRectTexture('bottom-bar', W + 40, 118, 0x271c58, 0x1a1140, 30, 0x4c3d94)
-    this.add.image(W / 2, BAR_Y + 30, 'bottom-bar').setAlpha(0.98).setDepth(38)
-    this.add.rectangle(W / 2, BAR_Y - 26, W - 48, 3, 0xffffff, 0.12).setDepth(39)
-
-    // chat pill (left)
-    this.makeRoundedRectTexture('chat-pill', 108, 46, 0x3d6bd6, 0x2f52ab, 23, 0x7ba0f0)
-    const chat = this.add.container(80, BAR_Y).setDepth(45)
-    chat.add(this.add.image(0, 0, 'chat-pill'))
-    chat.add(this.add.text(-14, 0, '💬', { fontSize: 18 }).setOrigin(0.5))
-    chat.add(this.add.text(8, 0, 'Chat', {
-      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(0.5))
-    const chatZone = this.makeHitZone(80, BAR_Y, 112, 50)
-    this.addPressFeedback(chatZone, chat, () => this.showToast('Chat coming soon'))
-
-    // settings (right)
-    this.makeRoundedRectTexture('bar-btn', 48, 48, 0x3b2c78, 0x2a1e5c, 15, 0x6a58b8)
-    const setImg = this.add.image(W - 56, BAR_Y, 'bar-btn').setDepth(45)
-    this.add.text(W - 56, BAR_Y - 1, '⚙', { fontSize: 20 }).setOrigin(0.5).setDepth(46)
-    const setZone = this.makeHitZone(W - 56, BAR_Y, 52, 52)
-    this.addPressFeedback(setZone, setImg, () => this.showToast('Settings — coming soon'))
-
+    this.makeRoundedRectTexture('bottom-bar', W + 40, 108, 0x271c58, 0x1a1140, 30, 0x4c3d94)
+    this.add.image(W / 2, BAR_Y + 26, 'bottom-bar').setAlpha(0.98).setDepth(38)
+    this.add.rectangle(W / 2, BAR_Y - 28, W - 48, 3, 0xffffff, 0.12).setDepth(39)
     this.createPowerButtons()
   }
 
+  // Three fixed power slots. The icon is the button; a red corner badge shows
+  // how many of that power you hold (hidden at zero, like every other game).
   createPowerButtons() {
     this.powerButtons = {}
-    const y = BAR_Y
-    const powers = [
-      { key: 'fire', x: W / 2 - 88 },
-      { key: 'water', x: W / 2 },
-      { key: 'earth', x: W / 2 + 88 },
-    ]
-    this.makeRoundedRectTexture('power-btn', 70, 70, 0x4356c9, 0x2a3596, 18, 0x7b8bef)
+    const xs = { fire: W / 2 - 100, water: W / 2, earth: W / 2 + 100 }
 
-    powers.forEach((power) => {
-      const c = this.add.container(power.x, y).setDepth(48)
-      c.add(this.add.circle(3, 5, 35, 0x000000, 0.24))
-      c.add(this.add.image(0, 0, 'power-btn'))
-      c.add(this.add.image(0, -1, `rune-${power.key}`).setScale(0.085))
-      const countBg = this.add.circle(22, -22, 12, 0xffd85e).setStrokeStyle(2, 0x7a5a10)
-      const countText = this.add.text(22, -22, '0', {
-        fontFamily: 'Verdana, sans-serif', fontSize: 11, color: '#3c2b12', fontStyle: 'bold',
+    POWER_SLOT_KEYS.forEach((key) => {
+      const x = xs[key]
+      const c = this.add.container(x, BAR_Y).setDepth(48).setData('baseScale', 1)
+      c.add(this.add.ellipse(4, 42, 66, 16, 0x000000, 0.3))
+      const icon = this.add.image(0, 0, `rune-${key}`).setScale(88 / 240)
+      icon.name = 'icon'
+      c.add(icon)
+      const badge = this.add.container(34, -34)
+      badge.add(this.add.circle(2, 2, 15, 0x000000, 0.3))
+      badge.add(this.add.circle(0, 0, 15, 0xff4757).setStrokeStyle(2.5, 0xffffff))
+      const countText = this.add.text(0, -1, '0', {
+        fontFamily: 'Verdana, sans-serif', fontSize: 15, color: '#ffffff', fontStyle: 'bold',
       }).setOrigin(0.5)
-      c.add([countBg, countText])
-      const zone = this.makeHitZone(power.x, y, 70, 70)
-      this.addPressFeedback(zone, c, () => this.usePower(power.key))
-      this.powerButtons[power.key] = { container: c, countText }
+      badge.add(countText)
+      badge.setVisible(false)
+      c.add(badge)
+      const zone = this.makeHitZone(x, BAR_Y, 92, 92).setDepth(48)
+      this.addPressFeedback(zone, c, () => this.usePower(key))
+      this.powerButtons[key] = { container: c, icon, badge, countText, zone, owned: false }
     })
   }
 
@@ -473,46 +533,46 @@ export class ClassicScene extends UIScene {
 
   createRuneView(rune) {
     const { x, y } = this.getTrackPixel(rune.index)
-    const glow = {
-      fire: 0xff7a2f,
-      water: 0x58c9ff,
-      earth: 0x73d96a,
-      air: 0xffe16b,
-    }[rune.type]
     const c = this.add.container(x, y).setDepth(18)
-    c.add(this.add.circle(2, 5, 17, 0x000000, 0.22))
-    c.add(this.add.circle(0, 0, 18, glow, 0.34))
-    c.add(this.add.image(0, 0, `rune-${rune.type}`).setScale(0.05))
-    this.tweens.add({
-      targets: c,
-      y: y - 4,
-      scale: 1.08,
-      duration: 760,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    })
+    c.add(this.add.ellipse(2, 15, 30, 9, 0x000000, 0.3))
+    c.add(this.add.image(0, -1, `rune-${rune.type}`).setScale(40 / 240))
+    if (!prefersReducedMotion) {
+      this.tweens.add({
+        targets: c,
+        y: y - 5,
+        scale: 1.07,
+        duration: 900,
+        yoyo: true,
+        repeat: -1,
+        ease: EASE.breathe,
+      })
+    }
     return c
   }
 
   makePawnView(color) {
     const c = this.add.container(0, 0).setDepth(20)
-    const glow = this.add.circle(0, 0, 28, COLOR_HEX[color], 0)
+    const glow = this.add.circle(0, -4, 25, COLOR_HEX[color], 0)
     glow.name = 'glow'
-    const shield = this.add.circle(0, -10, 29, 0x9ee7ff, 0.16)
+
+    // protective bubble (hidden until the earth power is used)
+    const shield = this.add.container(0, -16)
     shield.name = 'shield'
+    shield.add(this.add.circle(0, 0, 32, 0x5ad6ff, 0.12))
+    shield.add(this.add.circle(0, 0, 26, 0xcdf4ff, 0.16).setStrokeStyle(3, 0x7ee6ff, 0.95))
+    shield.add(this.add.circle(-9, -12, 5, 0xffffff, 0.7))
     shield.setVisible(false)
-    const shadow = this.add.ellipse(3, 18, 40, 14, 0x000000, 0.28)
-    shadow.name = 'shadow'
+
     const token = this.add.container(0, 0)
     token.name = 'token'
-    const sprite = this.add.image(0, -16, `pawn-${color}`)
-    sprite.setScale(76 / sprite.height)
+    // tight-cropped art, feet at the sprite's bottom edge -> sits flat on the cell
+    const sprite = this.add.image(0, 12, `pawn-${color}`).setOrigin(0.5, 1)
+    sprite.setScale(64 / sprite.height)
     sprite.name = 'sprite'
     token.add(sprite)
-    const zone = this.add.zone(0, 0, 58, 70)
+    const zone = this.add.zone(0, -14, 58, 68)
     zone.name = 'zone'
-    c.add([glow, shield, shadow, token, zone])
+    c.add([glow, shield, token, zone])
     return c
   }
 
@@ -532,11 +592,10 @@ export class ClassicScene extends UIScene {
     const tray = dice.container
     const trayY = POD[color].dy
     const forcedValue = this.forcedDiceValue
+    const guaranteedSix = this.sixForced.has(color)
     const doubleActive = this.doubleNextRoll
     this.forcedDiceValue = null
     this.doubleNextRoll = false
-    this.helpText.setText('Rolling…')
-    this.rollHint.setText('')
     let ticks = 0
     tray.setVisible(true).setAlpha(1)
     this.tweens.add({
@@ -573,11 +632,22 @@ export class ClassicScene extends UIScene {
       repeat: 13,
       callback: () => {
         ticks++
-        const rawValue = ticks === 14 && forcedValue ? forcedValue : Phaser.Math.Between(1, 6)
+        const rawValue =
+          ticks === 14
+            ? forcedValue ?? (guaranteedSix ? 6 : Phaser.Math.Between(1, 6))
+            : Phaser.Math.Between(1, 6)
         dice.face.setTexture(`dice-${rawValue}`)
         if (ticks === 14) {
           this.rawDiceValue = rawValue
           this.diceValue = doubleActive ? rawValue * 2 : rawValue
+          // "1-in-N" pity: never more than SIX_PITY_LIMIT non-sixes in a row
+          if (rawValue === 6) {
+            this.sixPity[color] = 0
+            this.sixForced.delete(color)
+          } else {
+            this.sixPity[color]++
+            if (this.sixPity[color] >= SIX_PITY_LIMIT) this.sixForced.add(color)
+          }
           this.phase = 'move'
           this.refreshTurnUI()
           this.popAt(tray.x, tray.y, COLOR_HEX[color])
@@ -618,7 +688,6 @@ export class ClassicScene extends UIScene {
       inventory.fire--
       this.doubleNextRoll = true
       this.flashPower(key)
-      this.helpText.setText('Fire active. Your next dice result counts twice.')
       this.updatePowerButtons()
       return
     }
@@ -630,11 +699,9 @@ export class ClassicScene extends UIScene {
       this.flashPower(key)
       this.playShieldAura(color)
       this.updateShieldVisuals()
-      this.helpText.setText('Earth shield active until your next roll.')
       this.updatePowerButtons()
       return
     }
-
   }
 
   flashPower(key) {
@@ -657,7 +724,7 @@ export class ClassicScene extends UIScene {
     const overlay = this.add.container(W / 2, 960).setDepth(120)
     this.makeRoundedRectTexture('controller-picker-bg', 430, 104, 0x10213a, 0x251a58, 22, 0xbdeeff)
     overlay.add(this.add.image(0, 0, 'controller-picker-bg').setAlpha(0.96))
-    overlay.add(this.add.text(0, -34, 'Choose dice number', {
+    overlay.add(this.add.text(0, -34, t('classic.chooseDice'), {
       fontFamily: 'Verdana, sans-serif',
       fontSize: 16,
       color: '#ffffff',
@@ -713,7 +780,8 @@ export class ClassicScene extends UIScene {
         this.checkForWinner(pawn.color)
         if (this.gameOver) return
         this.phase = 'roll'
-        const keepsTurn = this.rawDiceValue === 6 || this.extraRollNextTurn
+        // a six, an air rune, OR sending an opponent home all earn another roll
+        const keepsTurn = this.rawDiceValue === 6 || this.extraRollNextTurn || captured.length > 0
         if (!keepsTurn && !pawn.finished) this.advanceTurn()
         if (this.shieldedColors.has(pawn.color)) this.shieldExpiresOnOwnRoll.add(pawn.color)
         this.extraRollNextTurn = false
@@ -753,7 +821,7 @@ export class ClassicScene extends UIScene {
     this.extraRollNextTurn = false
     this.diceValue = 0
     this.rawDiceValue = 0
-    this.refreshTurnUI('No legal move')
+    this.refreshTurnUI(t('classic.noMove'))
     this.time.delayedCall(320, () => this.beginTurn())
   }
 
@@ -854,7 +922,7 @@ export class ClassicScene extends UIScene {
     const col = frac < 0.25 ? 0xff5a5a : 0xffffff
     arc.lineStyle(4, col, 0.95)
     arc.beginPath()
-    arc.arc(0, 0, 33, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac, false)
+    arc.arc(0, 0, POD_R + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac, false)
     arc.strokePath()
   }
 
@@ -868,7 +936,7 @@ export class ClassicScene extends UIScene {
 
   handleTurnTimeout() {
     if (this.gameOver) return
-    this.showToast('Time up - auto play')
+    this.showToast(t('classic.timeUp'))
     if (this.phase === 'roll') {
       this.rollDice()
     } else if (this.phase === 'move') {
@@ -937,16 +1005,18 @@ export class ClassicScene extends UIScene {
     this.makeRoundedRectTexture('victory-card', cardW, cardH, 0x2a1f52, 0x140d2c, 28, COLOR_HEX[winner])
     const card = this.add.container(W / 2, H / 2, [this.add.image(0, 0, 'victory-card').setAlpha(0.98)])
 
-    const heading = youWon ? 'YOU WIN!' : this.youColor ? 'DEFEAT' : `${winner.toUpperCase()} WINS`
+    const winColor = t(`color.${winner}`)
+    const heading = youWon ? t('victory.youWin') : this.youColor ? t('victory.defeat') : t('victory.colorWins', { color: winColor })
     card.add(this.add.text(0, -cardH / 2 + 66, heading, {
       fontFamily: 'Verdana, sans-serif', fontSize: 46, color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5).setStroke('#00000055', 6))
-    card.add(this.add.text(0, -cardH / 2 + 112, `${winner.toUpperCase()} got all four pawns home`, {
+    card.add(this.add.text(0, -cardH / 2 + 112, t('victory.allHome', { color: winColor }), {
       fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#c9b8ff',
     }).setOrigin(0.5))
 
-    const medals = ['1st', '2nd', '3rd', '4th']
+    const medals = [t('victory.place1'), t('victory.place2'), t('victory.place3'), t('victory.place4')]
     this.makeRoundedRectTexture('victory-row', cardW - 72, 50, 0x392b6b, 0x2a1f52, 12)
+    const rows = []
     ranking.forEach((color, i) => {
       const row = this.add.container(0, -cardH / 2 + 168 + i * 60)
       row.add(this.add.image(0, 0, 'victory-row'))
@@ -954,34 +1024,56 @@ export class ClassicScene extends UIScene {
       row.add(this.add.text(-cardW / 2 + 88, 0, medals[i], {
         fontFamily: 'Verdana, sans-serif', fontSize: 15, color: '#ffffff', fontStyle: 'bold',
       }).setOrigin(0, 0.5))
-      const name = color === this.youColor ? 'YOU' : this.isBot(color) ? `${color.toUpperCase()} BOT` : color.toUpperCase()
+      const name = color === this.youColor
+        ? t('classic.you').toUpperCase()
+        : this.isBot(color) ? t('victory.bot', { color: t(`color.${color}`) }) : t(`color.${color}`)
       row.add(this.add.text(-cardW / 2 + 142, 0, name, {
         fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#d9ccff',
       }).setOrigin(0, 0.5))
       const finished = this.pawns.filter((p) => p.color === color && p.finished).length
-      row.add(this.add.text(cardW / 2 - 54, 0, `${finished}/4 home`, {
+      row.add(this.add.text(cardW / 2 - 54, 0, t('victory.home4', { n: finished }), {
         fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#a99cd6',
       }).setOrigin(1, 0.5))
       card.add(row)
+      rows.push(row)
     })
+    // cascade the placement rows in after the card lands
+    if (!prefersReducedMotion) {
+      rows.forEach((r, i) => {
+        r.setAlpha(0).setX(-40)
+        this.tweens.add({ targets: r, alpha: 1, x: 0, delay: dur(360 + i * 80), duration: dur(DUR.base), ease: EASE.out })
+      })
+    }
 
     let ry = -cardH / 2 + 168 + ranking.length * 60 + 34
     if (reward) {
-      card.add(this.add.text(0, ry, `+${reward.coins.toLocaleString()} coins    +${reward.xp} XP`, {
+      const rewardStart = dur(400 + ranking.length * 80)
+      const rewardText = this.add.text(0, ry, t('victory.reward', { c: 0, x: 0 }), {
         fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#ffe27a', fontStyle: 'bold',
-      }).setOrigin(0.5))
+      }).setOrigin(0.5)
+      card.add(rewardText)
+      const rs = { c: 0, x: 0 }
+      this.tweens.add({
+        targets: rs, c: reward.coins, x: reward.xp,
+        delay: rewardStart, duration: dur(DUR.slow), ease: EASE.out,
+        onUpdate: () => rewardText.setText(t('victory.reward', { c: Math.round(rs.c).toLocaleString(), x: Math.round(rs.x) })),
+        onComplete: () => {
+          rewardText.setText(t('victory.reward', { c: reward.coins.toLocaleString(), x: reward.xp }))
+          this.pulseOnce(rewardText, { scale: 1.14 })
+        },
+      })
       if (reward.captures) {
-        card.add(this.add.text(0, ry + 26, `includes +${reward.captures * 12} capture bonus (${reward.captures} sent home)`, {
+        card.add(this.add.text(0, ry + 26, t('victory.captureBonus', { n: reward.captures * 12, k: reward.captures }), {
           fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#c9b8ff',
         }).setOrigin(0.5))
       }
       if (reward.levels > 0) {
-        card.add(this.add.text(0, ry + 52, `LEVEL UP!   You are now level ${store.level}`, {
+        card.add(this.add.text(0, ry + 52, t('victory.levelUp', { n: store.level }), {
           fontFamily: 'Verdana, sans-serif', fontSize: 15, color: '#7cffb2', fontStyle: 'bold',
         }).setOrigin(0.5))
       }
     } else {
-      card.add(this.add.text(0, ry, 'Local match - no rewards', {
+      card.add(this.add.text(0, ry, t('victory.noRewards'), {
         fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#a99cd6',
       }).setOrigin(0.5))
     }
@@ -991,11 +1083,11 @@ export class ClassicScene extends UIScene {
     this.makeRoundedRectTexture('victory-btn-ghost', 214, 62, 0x3a2c66, 0x2a2050, 16, 0x6a5aa8)
     const rematch = this.add.container(-116, by, [
       this.add.image(0, 0, 'victory-btn-primary'),
-      this.add.text(0, 0, 'REMATCH', { fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#08240f', fontStyle: 'bold' }).setOrigin(0.5),
+      this.add.text(0, 0, t('victory.rematch'), { fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#08240f', fontStyle: 'bold' }).setOrigin(0.5),
     ])
     const home = this.add.container(116, by, [
       this.add.image(0, 0, 'victory-btn-ghost'),
-      this.add.text(0, 0, 'HOME', { fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5),
+      this.add.text(0, 0, t('victory.home'), { fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5),
     ])
     card.add([rematch, home])
     layer.add(card)
@@ -1066,6 +1158,14 @@ export class ClassicScene extends UIScene {
     this.captureCounts[attacker.color] += captured.length
     sfx.capture()
     sfx.buzz([16, 40, 24])
+
+    if (CAPTURE_GRANTS_CHARGE) {
+      captured.forEach(({ pawn }, i) => {
+        const v = this.pawnViews.get(pawn)
+        const at = { x: v.x, y: v.y }
+        this.time.delayedCall(i * 130 + 240, () => this.grantCaptureCharge(attacker.color, at.x, at.y))
+      })
+    }
     const attackerView = this.pawnViews.get(attacker)
     const attackerScale = attackerView.getData('stackScale') ?? 1
     this.tweens.add({
@@ -1131,6 +1231,45 @@ export class ClassicScene extends UIScene {
     })
   }
 
+  // Capturing an opponent's pawn awards the attacker a random power charge,
+  // which flies from the capture spot to its bar button.
+  grantCaptureCharge(color, x, y) {
+    const key = Phaser.Utils.Array.GetRandom(CAPTURE_CHARGE_POOL)
+    this.powerInventory[color][key]++
+    sfx.rune()
+    this.updatePowerButtons() // reveal / reflow the slot before flying to it
+
+    const icon = this.add.image(x, y - 8, `rune-${key}`).setScale(46 / 240).setDepth(80)
+    const plus = this.add.text(x, y - 30, '+1', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 18, color: '#ffe27a', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(81).setStroke('#000000', 4)
+    this.tweens.add({ targets: plus, y: y - 58, alpha: 0, duration: dur(700), ease: EASE.out, onComplete: () => plus.destroy() })
+
+    const btn = this.powerButtons[key]?.container
+    if (btn && color === this.currentColor && !prefersReducedMotion) {
+      this.tweens.add({
+        targets: icon,
+        x: btn.x,
+        y: btn.y,
+        scale: 0.04,
+        duration: dur(480),
+        delay: dur(80),
+        ease: EASE.inOut,
+        onComplete: () => {
+          icon.destroy()
+          this.flashPower(key)
+          this.updatePowerButtons()
+        },
+      })
+    } else {
+      this.tweens.add({
+        targets: icon, y: icon.y - 34, alpha: 0, scale: 0.08,
+        duration: dur(520), ease: EASE.out, onComplete: () => icon.destroy(),
+      })
+      this.updatePowerButtons()
+    }
+  }
+
   playElementalSkill(color, x, y) {
     const config = {
       red: { tex: 'fx-flame', tint: [0xff3b1f, 0xff9a1f, 0xffd85e], count: 20, ring: 0xff5c28 },
@@ -1163,7 +1302,7 @@ export class ClassicScene extends UIScene {
   playShieldAura(color) {
     const badge = this.playerBadges[color]
     if (!badge) return
-    const aura = this.add.circle(badge.x, badge.y, 32, 0xffffff, 0).setStrokeStyle(5, 0x9ee7ff, 0.85).setDepth(42)
+    const aura = this.add.circle(badge.x, badge.y, POD_R, 0xffffff, 0).setStrokeStyle(5, 0x9ee7ff, 0.85).setDepth(42)
     this.tweens.add({
       targets: aura,
       radius: 64,
@@ -1178,65 +1317,77 @@ export class ClassicScene extends UIScene {
     const view = this.pawnViews.get(pawn)
     if (!view) return
     sfx.shield()
-    const shield = this.add.circle(view.x, view.y, 10, 0x9ee7ff, 0.12).setStrokeStyle(5, 0xd9fbff, 0.9).setDepth(47)
-    this.tweens.add({
-      targets: shield,
-      radius: 46,
-      alpha: 0,
-      duration: 380,
-      ease: 'Cubic.easeOut',
-      onComplete: () => shield.destroy(),
-    })
-    this.tweens.add({
-      targets: view,
-      scale: (view.getData('stackScale') ?? 1) * 1.18,
-      duration: 120,
-      yoyo: true,
-      ease: 'Sine.easeInOut',
-    })
+    sfx.buzz([18, 30])
+    const cx = view.x
+    const cy = view.y - 16
+    // shockwave rings
+    for (let i = 0; i < 2; i++) {
+      const ring = this.add.circle(cx, cy, 14, 0xffffff, 0).setStrokeStyle(5 - i * 2, 0xdff8ff, 0.95).setDepth(47)
+      this.tweens.add({
+        targets: ring, radius: 54 + i * 10, alpha: 0,
+        duration: dur(420), delay: dur(i * 90), ease: EASE.out,
+        onComplete: () => ring.destroy(),
+      })
+    }
+    // white flash on the bubble
+    const bubble = view.getByName('shield')
+    if (bubble) {
+      this.tweens.killTweensOf(bubble)
+      bubble.setScale(1).setAlpha(1)
+      this.tweens.add({
+        targets: bubble, scale: { from: 1.28, to: 1 }, duration: dur(260), ease: EASE.pop,
+        onComplete: () => this.updateShieldVisuals(),
+      })
+    }
+    this.cameras.main.shake(120, 0.003)
   }
 
   animatePawn(pawn, from, to, onComplete) {
     const view = this.pawnViews.get(pawn)
     this.tweens.killTweensOf(view)
     const token = view.getByName('token')
-    const shadow = view.getByName('shadow')
+    const sprite = token.getByName('sprite')
     const path = []
     if (from === -1) {
       path.push(0)
     } else {
       for (let step = from + 1; step <= to; step++) path.push(step)
     }
+    // hops get quicker as the path gets longer so a 6 doesn't crawl
+    const stepDur = dur(Phaser.Math.Clamp(158 - (path.length - 1) * 13, 92, 158))
+    const rm = prefersReducedMotion
+    const baseScale = () => view.getData('stackScale') ?? 1
+
     const hopNext = () => {
       const step = path.shift()
       if (step === undefined) {
-        view.setScale(view.getData('stackScale') ?? 1)
+        view.setScale(baseScale())
+        // landing squash
+        if (!rm && sprite) {
+          this.tweens.add({
+            targets: sprite,
+            scaleY: { from: sprite.scaleY * 0.82, to: sprite.scaleY },
+            scaleX: { from: sprite.scaleX * 1.14, to: sprite.scaleX },
+            duration: dur(160),
+            ease: EASE.pop,
+          })
+        }
         onComplete?.()
         return
       }
       sfx.hop()
       const target = this.getPixelFor(pawn.color, step)
+      const hopH = rm ? 0 : 16
+      // parabolic hop: token rides an arc while the view slides along the ground
       this.tweens.add({
-        targets: token,
-        y: -7,
-        duration: 82,
-        yoyo: true,
-        ease: 'Sine.easeInOut',
-      })
-      this.tweens.add({
-        targets: shadow,
-        scaleX: 0.78,
-        alpha: 0.18,
-        duration: 82,
-        yoyo: true,
-        ease: 'Sine.easeInOut',
+        targets: token, y: -hopH, duration: stepDur / 2, yoyo: true, ease: EASE.out,
       })
       this.tweens.add({
         targets: view,
         x: target.x,
         y: target.y,
-        duration: 165,
-        ease: 'Cubic.easeInOut',
+        duration: stepDur,
+        ease: 'Sine.easeInOut',
         onComplete: hopNext,
       })
     }
@@ -1319,7 +1470,7 @@ export class ClassicScene extends UIScene {
 
   getPawnPixel(pawn) {
     if (pawn.steps === -1) {
-      const [gx, gy] = YARDS[pawn.color].pawns[pawn.id]
+      const [gx, gy] = this.yardSlots(pawn.color)[pawn.id]
       return this.gridToPixel(gx, gy)
     }
     if (pawn.finished) return this.gridToPixel(7.5, 7.5)
@@ -1357,14 +1508,13 @@ export class ClassicScene extends UIScene {
       this.extraRollNextTurn = true
       this.animateRuneCollect(rune, pawn.color)
       this.spawnPowerRune(rune.type, rune.slot)
-      this.helpText.setText('Air rune collected. You keep the dice after this move.')
       return
     }
 
     this.powerInventory[pawn.color][rune.type]++
+    this.updatePowerButtons()
     this.animateRuneCollect(rune, pawn.color)
     this.spawnPowerRune(rune.type, rune.slot)
-    this.updatePowerButtons()
   }
 
   animateRuneCollect(rune, color) {
@@ -1411,59 +1561,83 @@ export class ClassicScene extends UIScene {
   refreshTurnUI(prefix) {
     const color = this.currentColor
     const bot = this.isBot(color)
-    const name = this.playerName(color)
+    const handoff = this._prevColor !== undefined && this._prevColor !== color
+    this._prevColor = color
 
     // active player's pod lifts + glows; others recede
     Object.entries(this.playerBadges).forEach(([key, badge]) => {
       const on = key === color
-      this.tweens.add({ targets: badge, scale: on ? 1.14 : 1, duration: 160, ease: 'Back.easeOut' })
-      badge.setAlpha(on ? 1 : 0.62)
+      this.tweens.killTweensOf(badge)
+      this.tweens.add({
+        targets: badge,
+        scale: on ? 1.16 : 1,
+        duration: dur(on && handoff ? DUR.base : DUR.fast),
+        ease: on ? EASE.pop : EASE.out,
+      })
+      this.tweens.add({ targets: badge, alpha: on ? 1 : 0.55, duration: dur(DUR.fast) })
       const ring = badge.getByName('ring')
       if (ring) {
         this.tweens.killTweensOf(ring)
         ring.setFillStyle(COLOR_HEX[key], on ? 0.35 : 0.001)
-        if (on) {
-          this.tweens.add({ targets: ring, scale: 1.14, alpha: 0.6, duration: 720, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
-        } else {
-          ring.setScale(1)
+        ring.setScale(1).setAlpha(1)
+        if (on && !prefersReducedMotion) {
+          this.tweens.add({ targets: ring, scale: 1.16, alpha: 0.55, duration: 780, yoyo: true, repeat: -1, ease: EASE.breathe })
         }
       }
       if (!on) badge.getByName('arc')?.clear()
     })
 
-    // only the active player's dice is shown, near their pod
-    Object.entries(this.cornerDice).forEach(([key, dice]) => {
-      const on = key === color && this.activeColors.includes(key)
-      dice.container.setVisible(on)
-      if (!on) return
-      this.tweens.killTweensOf(dice.glow)
-      if (!bot && this.phase === 'roll') {
-        dice.container.setAlpha(1)
-        dice.glow.setScale(1)
-        this.tweens.add({ targets: dice.glow, alpha: 0.4, scale: 1.3, duration: 760, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+    // the active player's whole home quadrant softly blinks
+    Object.entries(this.quadFx).forEach(([key, rect]) => {
+      this.tweens.killTweensOf(rect)
+      if (key === color && !prefersReducedMotion) {
+        rect.setFillStyle(COLOR_LIGHT[key]).setAlpha(0.05)
+        this.tweens.add({
+          targets: rect, alpha: 0.3,
+          duration: 620, yoyo: true, repeat: -1, ease: EASE.breathe,
+        })
       } else {
-        dice.container.setAlpha(bot ? 0.92 : 1)
-        dice.glow.setAlpha(0)
+        rect.setAlpha(0)
       }
     })
 
-    if (this.phase === 'move') {
-      const moves = this.getMovesForCurrentPlayer().length
-      const rollLabel = this.rawDiceValue && this.rawDiceValue !== this.diceValue ? `${this.rawDiceValue}×2 = ${this.diceValue}` : `${this.diceValue}`
-      if (bot) {
-        this.helpText.setText(`${name} rolled ${rollLabel}`)
-        this.rollHint.setText('moving…')
-      } else {
-        this.helpText.setText(moves > 0 ? `You rolled ${rollLabel}` : `You rolled ${rollLabel} — no move`)
-        this.rollHint.setText(moves > 0 ? 'tap a glowing pawn' : '')
+    // only the active player's dice is shown, popping in near their pod
+    Object.entries(this.cornerDice).forEach(([key, dice]) => {
+      const on = key === color && this.activeColors.includes(key)
+      const c = dice.container
+      this.tweens.killTweensOf(c)
+      this.tweens.killTweensOf(dice.glow)
+      if (!on) {
+        if (c.visible) {
+          this.tweens.add({ targets: c, scale: 0.5, alpha: 0, duration: dur(DUR.fast), ease: EASE.out, onComplete: () => c.setVisible(false) })
+        }
+        return
       }
-    } else if (bot) {
-      this.helpText.setText(`${name}'s turn`)
-      this.rollHint.setText('rolling…')
-    } else {
-      this.helpText.setText(prefix ? prefix : 'Your turn')
-      this.rollHint.setText('tap your dice to roll')
-    }
+      if (!c.visible) {
+        c.setVisible(true).setScale(prefersReducedMotion ? 1 : 0.4).setAlpha(prefersReducedMotion ? 1 : 0)
+        this.tweens.add({ targets: c, scale: 1, alpha: bot ? 0.95 : 1, duration: dur(DUR.base), ease: EASE.pop })
+      } else {
+        c.setAlpha(bot ? 0.95 : 1).setScale(1)
+      }
+      // "hot dice": a lucky 6 is due for this player next roll
+      const hot = this.phase === 'roll' && this.sixForced.has(key)
+      dice.glow.setFillStyle(hot ? 0xffd54d : 0xffffff)
+      if (!bot && this.phase === 'roll' && !prefersReducedMotion) {
+        dice.glow.setScale(1).setAlpha(0)
+        this.tweens.add({
+          targets: dice.glow,
+          alpha: hot ? 0.6 : 0.42,
+          scale: hot ? 1.45 : 1.32,
+          duration: hot ? 520 : 780,
+          yoyo: true,
+          repeat: -1,
+          ease: EASE.breathe,
+        })
+      } else {
+        dice.glow.setAlpha(hot ? 0.3 : 0)
+      }
+    })
+
     this.updatePawnHighlights()
     this.updatePowerButtons()
   }
@@ -1473,11 +1647,31 @@ export class ClassicScene extends UIScene {
     const color = this.currentColor
     const inventory = this.powerInventory[color]
     const human = !this.isBot(color)
-    Object.entries(this.powerButtons).forEach(([key, button]) => {
-      const count = inventory?.[key] ?? 0
-      const enabled = human && count > 0 && this.phase === 'roll'
-      button.countText.setText(`${count}`)
-      button.container.setAlpha(enabled ? 1 : 0.42)
+
+    POWER_SLOT_KEYS.forEach((key) => {
+      const b = this.powerButtons[key]
+      const count = human ? inventory?.[key] ?? 0 : 0
+      const has = count > 0
+      const usable = has && this.phase === 'roll'
+
+      // icons always show at full colour - no fading
+      b.container.setAlpha(1)
+      b.icon.setAlpha(1)
+      b.badge.setVisible(has)
+      b.countText.setText(`${count}`)
+      if (b.zone.input) b.zone.input.enabled = usable
+
+      // pop the icon whenever the count goes up
+      if (count > (b.lastCount ?? 0) && !prefersReducedMotion) {
+        this.tweens.killTweensOf(b.container)
+        this.tweens.add({
+          targets: b.container,
+          scale: { from: 1.3, to: 1 },
+          duration: dur(DUR.base),
+          ease: EASE.pop,
+        })
+      }
+      b.lastCount = count
     })
   }
 
@@ -1486,11 +1680,9 @@ export class ClassicScene extends UIScene {
     this.pawns.forEach((pawn) => {
       const view = this.pawnViews.get(pawn)
       const glow = view.getByName('glow')
-      const shield = view.getByName('shield')
       const active = this.phase === 'move' && !this.isBot(pawn.color) && pawn.color === this.currentColor && this.canMove(pawn)
       view.setAlpha(active ? 1 : 0.92)
       this.tweens.killTweensOf(view)
-      this.tweens.killTweensOf(shield)
       if (active) {
         glow?.setFillStyle(COLOR_HEX[pawn.color], 0.28)
         const stackScale = view.getData('stackScale') ?? 1
@@ -1507,17 +1699,6 @@ export class ClassicScene extends UIScene {
         glow?.setFillStyle(0xffffff, 0)
         view.setScale(view.getData('stackScale') ?? 1)
       }
-      if (shield?.visible) {
-        this.tweens.add({
-          targets: shield,
-          scale: 1.08,
-          alpha: 0.72,
-          duration: 650,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Sine.easeInOut',
-        })
-      }
     })
   }
 
@@ -1526,22 +1707,43 @@ export class ClassicScene extends UIScene {
       const view = this.pawnViews.get(pawn)
       const shield = view?.getByName('shield')
       if (!shield) return
-      const visible = this.shieldedColors.has(pawn.color) && !pawn.finished
-      shield.setVisible(visible)
-      shield.setAlpha(visible ? 0.72 : 0)
-      shield.setScale(1)
+      // bubble only matters for pawns out on the track
+      const wanted = this.shieldedColors.has(pawn.color) && pawn.steps >= 0 && !pawn.finished
       this.tweens.killTweensOf(shield)
-      if (visible) {
+      if (!wanted) {
+        if (shield.visible && !prefersReducedMotion) {
+          this.tweens.add({
+            targets: shield, alpha: 0, scale: 0.6, duration: dur(180),
+            onComplete: () => shield.setVisible(false),
+          })
+        } else {
+          shield.setVisible(false)
+        }
+        return
+      }
+      const forming = !shield.visible
+      shield.setVisible(true)
+      if (forming && !prefersReducedMotion) {
+        shield.setScale(1.7).setAlpha(0)
+        this.tweens.add({ targets: shield, scale: 1, alpha: 1, duration: dur(300), ease: EASE.pop })
+        this.shieldBurst(view.x, view.y - 16)
+      } else {
+        shield.setScale(1).setAlpha(1)
+      }
+      if (!prefersReducedMotion) {
         this.tweens.add({
-          targets: shield,
-          scale: 1.08,
-          alpha: 0.72,
-          duration: 650,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Sine.easeInOut',
+          targets: shield, scale: 1.07,
+          duration: 900, yoyo: true, repeat: -1, ease: EASE.breathe,
         })
       }
+    })
+  }
+
+  shieldBurst(x, y) {
+    const ring = this.add.circle(x, y, 20, 0x8fe6ff, 0).setStrokeStyle(4, 0xcdf4ff, 0.9).setDepth(46)
+    this.tweens.add({
+      targets: ring, radius: 46, alpha: 0, duration: dur(360), ease: EASE.out,
+      onComplete: () => ring.destroy(),
     })
   }
 
@@ -1635,117 +1837,6 @@ export class ClassicScene extends UIScene {
       g.generateTexture('fx-bolt', 18, 28)
       g.destroy()
     }
-  }
-
-  createPawnTextures() {
-    Object.entries(PAWN_ASSETS).forEach(([color, asset]) => {
-      const key = `pawn-${color}`
-      if (this.textures.exists(key)) this.textures.remove(key)
-      this.createTransparentPawnTexture(`pawn-src-${asset}`, key)
-    })
-  }
-
-  createRuneTextures() {
-    const source = this.textures.get('rune-sheet').getSourceImage()
-    const names = ['fire', 'water', 'earth', 'air']
-    const frameW = source.width / names.length
-    names.forEach((name, index) => {
-      const key = `rune-${name}`
-      if (this.textures.exists(key)) this.textures.remove(key)
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.floor(frameW)
-      canvas.height = source.height
-      canvas
-        .getContext('2d')
-        .drawImage(source, index * frameW, 0, frameW, source.height, 0, 0, canvas.width, canvas.height)
-      this.textures.addCanvas(key, canvas)
-    })
-  }
-
-  createTransparentPawnTexture(srcKey, outKey) {
-    const source = this.textures.get(srcKey).getSourceImage()
-    const canvas = document.createElement('canvas')
-    canvas.width = source.width
-    canvas.height = source.height
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    ctx.drawImage(source, 0, 0)
-
-    const image = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    const { data, width, height } = image
-    const seen = new Uint8Array(width * height)
-    const queue = []
-
-    const enqueue = (x, y) => {
-      if (x < 0 || y < 0 || x >= width || y >= height) return
-      const index = y * width + x
-      if (seen[index]) return
-      seen[index] = 1
-      const offset = index * 4
-      const r = data[offset]
-      const g = data[offset + 1]
-      const b = data[offset + 2]
-      const max = Math.max(r, g, b)
-      const min = Math.min(r, g, b)
-      const avg = (r + g + b) / 3
-      if (max - min <= 10 && avg >= 218) queue.push([x, y])
-    }
-
-    for (let x = 0; x < width; x++) {
-      enqueue(x, 0)
-      enqueue(x, height - 1)
-    }
-    for (let y = 0; y < height; y++) {
-      enqueue(0, y)
-      enqueue(width - 1, y)
-    }
-
-    let cursor = 0
-    while (cursor < queue.length) {
-      const [x, y] = queue[cursor++]
-      const offset = (y * width + x) * 4
-      data[offset + 3] = 0
-      enqueue(x + 1, y)
-      enqueue(x - 1, y)
-      enqueue(x, y + 1)
-      enqueue(x, y - 1)
-    }
-
-    ctx.putImageData(image, 0, 0)
-    const box = this.findVisibleBounds(data, width, height)
-    if (!box) {
-      this.textures.addCanvas(outKey, canvas)
-      return
-    }
-
-    const pad = 16
-    const sx = Math.max(0, box.minX - pad)
-    const sy = Math.max(0, box.minY - pad)
-    const sw = Math.min(width - sx, box.maxX - box.minX + pad * 2)
-    const sh = Math.min(height - sy, box.maxY - box.minY + pad * 2)
-    const cropped = document.createElement('canvas')
-    cropped.width = sw
-    cropped.height = sh
-    cropped.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh)
-    this.textures.addCanvas(outKey, cropped)
-  }
-
-  findVisibleBounds(data, width, height) {
-    let minX = width
-    let minY = height
-    let maxX = -1
-    let maxY = -1
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const offset = (y * width + x) * 4
-        if (data[offset + 3] === 0) continue
-        minX = Math.min(minX, x)
-        minY = Math.min(minY, y)
-        maxX = Math.max(maxX, x)
-        maxY = Math.max(maxY, y)
-      }
-    }
-    if (maxX < minX || maxY < minY) return null
-    return { minX, minY, maxX, maxY }
   }
 
   popAt(x, y, color) {
