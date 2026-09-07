@@ -63,6 +63,11 @@ class AudioManager {
     this.tone(180, { dur: 0.1, type: 'sine', gain: 0.1, delay: 0.02 })
   }
   hop() { this.tone(660, { dur: 0.05, type: 'sine', gain: 0.06 }) }
+  extraRoll() {
+    ;[660, 880, 1100].forEach((frequency, i) =>
+      this.tone(frequency, { dur: 0.12, type: 'triangle', gain: 0.08, delay: i * 0.07 })
+    )
+  }
   rune() {
     this.tone(880, { dur: 0.1, type: 'triangle', gain: 0.12 })
     this.tone(1320, { dur: 0.12, type: 'triangle', gain: 0.1, delay: 0.06 })

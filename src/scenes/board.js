@@ -4,22 +4,33 @@
 export const COLORS = ['red', 'green', 'yellow', 'blue']
 
 export const COLOR_HEX = {
-  red: 0xe94a42,
-  green: 0x25bd5c,
-  yellow: 0xf0c433,
-  blue: 0x2f87e8,
+  red: 0xf04452,
+  green: 0x12af78,
+  yellow: 0xf5b82e,
+  blue: 0x3478ed,
 }
 export const COLOR_DARK = {
-  red: 0xad2d2a,
-  green: 0x127a3a,
-  yellow: 0xa97c08,
-  blue: 0x1b57a6,
+  red: 0xb52943,
+  green: 0x087958,
+  yellow: 0xb77c12,
+  blue: 0x2451ac,
 }
 export const COLOR_LIGHT = {
-  red: 0xff6b60,
-  green: 0x45dd77,
-  yellow: 0xffde55,
-  blue: 0x5aa5ff,
+  red: 0xff7b83,
+  green: 0x5cdda5,
+  yellow: 0xffda70,
+  blue: 0x7aafff,
+}
+export const COLOR_SURFACE = {
+  red: 0xfff3f4,
+  green: 0xedfbf4,
+  yellow: 0xfff9e9,
+  blue: 0xeff5ff,
+}
+export const BOARD_PALETTE = {
+  track: 0xf5f7fc,
+  safe: 0xcfd4dd,
+  grid: 0x8793aa,
 }
 export const PAWN_ASSETS = {
   red: 'fire',
