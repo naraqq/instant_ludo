@@ -91,7 +91,26 @@ export const GeometryMixin = {
     return this.gridToPixel(gx + 0.5, gy + 0.5)
   },
 
+  // Grid -> pixel. `this._boardRot` (0-3 quarter turns, set only by the online
+  // scene) rotates the whole board about its centre so the local player always
+  // sits bottom-left. Everything visual routes through here, so pawns, gates,
+  // runes and the board graphic all rotate together; sprites stay upright
+  // because we only move points, never rotate the canvas.
   gridToPixel(gx, gy) {
-    return { x: BOARD_X + gx * TILE, y: BOARD_Y + gy * TILE }
+    const k = (this._boardRot | 0) % 4
+    let x = gx
+    let y = gy
+    if (k) {
+      let rx = gx - 7.5
+      let ry = gy - 7.5
+      for (let n = 0; n < k; n++) {
+        const t = rx
+        rx = -ry
+        ry = t
+      }
+      x = rx + 7.5
+      y = ry + 7.5
+    }
+    return { x: BOARD_X + x * TILE, y: BOARD_Y + y * TILE }
   },
 }

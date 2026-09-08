@@ -9,13 +9,17 @@ import { COLORS, COLOR_HEX, COLOR_LIGHT } from '@ludo/engine'
 import { POD, POD_R } from './constants.js'
 
 export const PlayersMixin = {
+  // Where a colour's pod / corner-dice sit on screen. The online scene overrides
+  // this so the local player is always bottom-left.
+  podFor(color) { return POD[color] },
+
   createPlayers() {
     this.playerBadges = {}
     this.cornerDice = {}
     this.makeRoundedRectTexture('pod-tag', 96, 24, 0x1a1240, 0x120c30, 12, 0x5847a0)
 
     COLORS.forEach((color) => {
-      const pod = POD[color]
+      const pod = this.podFor(color)
       const c = this.add.container(pod.ax, pod.ay).setDepth(30)
       c.add(this.add.circle(4, 6, POD_R, 0x000000, 0.32))
       const ring = this.add.circle(0, 0, POD_R + 6, COLOR_HEX[color], 0.001)
@@ -44,7 +48,7 @@ export const PlayersMixin = {
   },
 
   createCornerDice(color) {
-    const pod = POD[color]
+    const pod = this.podFor(color)
     const container = this.add.container(pod.dx, pod.dy).setDepth(34)
     const glow = this.add.circle(0, 0, 39, 0xffffff, 0)
       .setStrokeStyle(2, COLOR_LIGHT[color], 1).setAlpha(0)

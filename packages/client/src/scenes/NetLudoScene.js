@@ -6,7 +6,7 @@ import { UIScene } from '../ui/UIScene.js'
 import { EASE, dur } from '../ui/tokens.js'
 import { sfx } from '../audio.js'
 import { t } from '../i18n.js'
-import { COLOR_HEX, COLORS, PAWN_ASSETS, POWER_TYPES } from '@ludo/engine'
+import { COLOR_HEX, COLORS, PAWN_ASSETS, POWER_TYPES, START_INDEX } from '@ludo/engine'
 import { GeometryMixin } from './classic/geometry.js'
 import { BoardViewMixin } from './classic/boardView.js'
 import { PlayersMixin } from './classic/players.js'
@@ -14,7 +14,7 @@ import { PawnsMixin } from './classic/pawns.js'
 import { PowersMixin } from './classic/powers.js'
 import { CombatMixin } from './classic/combat.js'
 import { DiceAnimMixin } from './classic/diceAnim.js'
-import { TILE, BOARD_Y, TURN_SECONDS } from './classic/constants.js'
+import { TILE, BOARD_Y, TURN_SECONDS, POD } from './classic/constants.js'
 import { joinMatch, createRoom, joinByCode, tryReconnect, clearReconnect } from '../net/room.js'
 
 export class NetLudoScene extends UIScene {
@@ -213,8 +213,29 @@ export class NetLudoScene extends UIScene {
 
   // ------------------------------------------------------------------ board
 
+  // Rotate the board so the local player is always bottom-left, whatever engine
+  // colour they were dealt. Everything visual goes through gridToPixel / podFor,
+  // so setting these two is enough.
+  setPerspective() {
+    this._boardRot = 0
+    this._slotColor = Object.fromEntries(COLORS.map((c) => [c, c]))
+    const me = this.myColor
+    const shift = START_INDEX[me] || 0
+    if (!me || !shift) return // blue (start 0) or unknown -> already bottom-left
+    this._boardRot = (4 - shift / 13) % 4
+    for (const c of COLORS) {
+      const tgt = (START_INDEX[c] - shift + 52) % 52
+      this._slotColor[c] = COLORS.find((x) => START_INDEX[x] === tgt) || c
+    }
+  }
+
+  // where each colour's pod / corner-dice sit - overrides PlayersMixin so the
+  // local player is bottom-left
+  podFor(color) { return POD[this._slotColor?.[color] || color] }
+
   buildBoard() {
     this.pawns = this.g.pawns.map((p) => ({ color: p.color, id: p.id, steps: p.steps, finished: p.finished }))
+    this.setPerspective()
     this.createBoard()
     this.createPlayers()
     this.createBottomBar()
@@ -567,6 +588,10 @@ export class NetLudoScene extends UIScene {
   }
 }
 
+// Fold in the shared rendering mixins, then restore this class's own methods on
+// top - several names (usePower, playerName, updatePawnHighlights, podFor, ...)
+// are deliberately overridden here for online play and must win over the mixin.
+const ownProps = Object.getOwnPropertyDescriptors(NetLudoScene.prototype)
 Object.assign(
   NetLudoScene.prototype,
   GeometryMixin,
@@ -577,3 +602,5 @@ Object.assign(
   CombatMixin,
   DiceAnimMixin,
 )
+delete ownProps.constructor
+Object.defineProperties(NetLudoScene.prototype, ownProps)

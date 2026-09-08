@@ -98,15 +98,9 @@ export const BoardViewMixin = {
     this.quadFx = {}
     COLORS.forEach((color) => {
       const [bx, by] = YARDS[color].box
+      const c = this.gridToPixel(bx + 3, by + 3)
       const rect = this.add
-        .rectangle(
-          BOARD_X + (bx + 3) * TILE,
-          BOARD_Y + (by + 3) * TILE,
-          TILE * 6,
-          TILE * 6,
-          COLOR_LIGHT[color],
-          0
-        )
+        .rectangle(c.x, c.y, TILE * 6, TILE * 6, COLOR_LIGHT[color], 0)
         .setDepth(3)
       this.quadFx[color] = rect
     })
@@ -114,8 +108,9 @@ export const BoardViewMixin = {
 
   drawYard(g, color) {
     const [gx, gy] = YARDS[color].box
-    const x = BOARD_X + gx * TILE
-    const y = BOARD_Y + gy * TILE
+    const centre = this.gridToPixel(gx + 3, gy + 3)
+    const x = centre.x - TILE * 3
+    const y = centre.y - TILE * 3
     g.fillStyle(COLOR_HEX[color], 1)
     g.fillRect(x, y, TILE * 6, TILE * 6)
     g.fillGradientStyle(COLOR_LIGHT[color], COLOR_HEX[color], COLOR_HEX[color], COLOR_DARK[color], 1)
@@ -129,14 +124,16 @@ export const BoardViewMixin = {
     g.lineStyle(3, 0xffffff, .9)
     g.strokeRoundedRect(x + TILE, y + TILE, TILE * 4, TILE * 4, 18)
     this.yardSlots(color).forEach(([px, py]) => {
+      const p = this.gridToPixel(px, py + 0.28)
       g.fillStyle(COLOR_HEX[color], .16)
-      g.fillEllipse(BOARD_X + px * TILE, BOARD_Y + (py + 0.28) * TILE, 34, 14)
+      g.fillEllipse(p.x, p.y, 34, 14)
     })
   },
 
   drawSquare(g, gx, gy, color, alpha = 1, laneColor, opts = {}) {
-    const x = BOARD_X + gx * TILE
-    const y = BOARD_Y + gy * TILE
+    const centre = this.gridToPixel(gx + 0.5, gy + 0.5)
+    const x = centre.x - TILE / 2
+    const y = centre.y - TILE / 2
     g.fillStyle(color, alpha)
     g.fillRect(x, y, TILE, TILE)
     if (laneColor) {
@@ -175,16 +172,21 @@ export const BoardViewMixin = {
   },
 
   drawCenter(g) {
-    const cx = BOARD_X + 7.5 * TILE
-    const cy = BOARD_Y + 7.5 * TILE
+    const C = this.gridToPixel(7.5, 7.5)
+    const cx = C.x
+    const cy = C.y
+    const tl = this.gridToPixel(6, 6)
+    const tr = this.gridToPixel(9, 6)
+    const bl = this.gridToPixel(6, 9)
+    const br = this.gridToPixel(9, 9)
     g.fillStyle(COLOR_HEX.red, 1)
-    g.fillTriangle(BOARD_X + 6 * TILE, BOARD_Y + 6 * TILE, cx, cy, BOARD_X + 6 * TILE, BOARD_Y + 9 * TILE)
+    g.fillTriangle(tl.x, tl.y, cx, cy, bl.x, bl.y)
     g.fillStyle(COLOR_HEX.green, 1)
-    g.fillTriangle(BOARD_X + 6 * TILE, BOARD_Y + 6 * TILE, cx, cy, BOARD_X + 9 * TILE, BOARD_Y + 6 * TILE)
+    g.fillTriangle(tl.x, tl.y, cx, cy, tr.x, tr.y)
     g.fillStyle(COLOR_HEX.yellow, 1)
-    g.fillTriangle(BOARD_X + 9 * TILE, BOARD_Y + 6 * TILE, cx, cy, BOARD_X + 9 * TILE, BOARD_Y + 9 * TILE)
+    g.fillTriangle(tr.x, tr.y, cx, cy, br.x, br.y)
     g.fillStyle(COLOR_HEX.blue, 1)
-    g.fillTriangle(BOARD_X + 6 * TILE, BOARD_Y + 9 * TILE, cx, cy, BOARD_X + 9 * TILE, BOARD_Y + 9 * TILE)
+    g.fillTriangle(bl.x, bl.y, cx, cy, br.x, br.y)
     this._boardExtras?.push(this.add.text(cx, cy, '★', {
       fontFamily: 'Verdana, sans-serif',
       fontSize: 34,

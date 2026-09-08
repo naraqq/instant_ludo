@@ -40,7 +40,7 @@ export const DiceAnimMixin = {
     dice.face2.setVisible(doubled)
     dice.shadow2.setVisible(doubled)
     this.tweens.killTweensOf(tray)
-    tray.setVisible(true).setAlpha(1).setScale(1).setAngle(0).setY(POD[color].dy)
+    tray.setVisible(true).setAlpha(1).setScale(1).setAngle(0).setY((this.podFor?.(color) ?? POD[color]).dy)
     dice.glow.setVisible(false).setAlpha(0)
     sfx.buzz?.(10) // tap feedback; the roll whoosh fires when the real tumble starts
     const base = { ...dice.pose }
@@ -85,7 +85,7 @@ export const DiceAnimMixin = {
     if (instant) { this.restDice(color, rawValue, { doubled }); return Promise.resolve() }
 
     const tray = dice.container
-    const trayY = POD[color].dy
+    const trayY = (this.podFor?.(color) ?? POD[color]).dy
     const target = dicePose(rawValue)
     const start = { ...dice.pose }
     const progress = { t: 0 }
