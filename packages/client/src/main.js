@@ -2,6 +2,7 @@ import './style.css'
 import Phaser from 'phaser'
 import { HomeScene } from './scenes/HomeScene.js'
 import { ClassicScene } from './scenes/ClassicScene.js'
+import { NetLudoScene } from './scenes/NetLudoScene.js'
 import { sfx } from './audio.js'
 import { session } from './net/playfab.js' // kicks off anonymous device login on load
 
@@ -15,7 +16,7 @@ const game = new Phaser.Game({
     width: 720,
     height: 1280,
   },
-  scene: [HomeScene, ClassicScene],
+  scene: [HomeScene, ClassicScene, NetLudoScene],
 })
 
 // Browsers only let an AudioContext start from inside a user gesture.

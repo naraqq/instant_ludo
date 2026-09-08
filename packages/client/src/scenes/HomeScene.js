@@ -427,34 +427,36 @@ export class HomeScene extends UIScene {
 
   openGameSetup(state) {
     const s = state || { opponents: 3, mode: 'cpu', difficulty: store.difficulty }
-    const cardH = 430
+    const online = s.mode === 'online'
+    const cardH = online ? 300 : 430
     const { card } = this.buildModal(t('setup.title'), cardH)
     const T = -cardH / 2
     const reopen = () => this.openGameSetup({ ...s })
 
-    this.modalLabel(card, T + 84, t('setup.opponents'))
-    ;[1, 2, 3].forEach((n, i) => {
-      this.modalChip(card, -96 + i * 96, T + 118, 80, `${n}`, s.opponents === n, () => {
-        s.opponents = n
-        reopen()
+    this.modalLabel(card, T + 84, t('setup.playAgainst'))
+    this.modalChip(card, -118, T + 118, 108, t('setup.computer'), s.mode === 'cpu', () => { s.mode = 'cpu'; reopen() })
+    this.modalChip(card, 0, T + 118, 108, t('setup.local'), s.mode === 'local', () => { s.mode = 'local'; reopen() })
+    this.modalChip(card, 118, T + 118, 108, t('setup.online'), online, () => { s.mode = 'online'; reopen() })
+
+    if (!online) {
+      this.modalLabel(card, T + 172, t('setup.opponents'))
+      ;[1, 2, 3].forEach((n, i) => {
+        this.modalChip(card, -96 + i * 96, T + 206, 80, `${n}`, s.opponents === n, () => { s.opponents = n; reopen() })
       })
-    })
-
-    this.modalLabel(card, T + 172, t('setup.playAgainst'))
-    this.modalChip(card, -84, T + 206, 156, t('setup.computer'), s.mode === 'cpu', () => { s.mode = 'cpu'; reopen() })
-    this.modalChip(card, 84, T + 206, 156, t('setup.local'), s.mode === 'local', () => { s.mode = 'local'; reopen() })
-
-    if (s.mode === 'cpu') {
-      this.modalLabel(card, T + 260, t('setup.difficulty'))
-      ;['easy', 'normal', 'hard'].forEach((d, i) => {
-        this.modalChip(card, -116 + i * 116, T + 294, 108, t(`common.${d}`), s.difficulty === d, () => {
-          s.difficulty = d
-          reopen()
+      if (s.mode === 'cpu') {
+        this.modalLabel(card, T + 260, t('setup.difficulty'))
+        ;['easy', 'normal', 'hard'].forEach((d, i) => {
+          this.modalChip(card, -116 + i * 116, T + 294, 108, t(`common.${d}`), s.difficulty === d, () => { s.difficulty = d; reopen() })
         })
-      })
+      }
     }
 
     this.modalButton(card, 0, cardH / 2 - 46, 300, t('setup.start'), true, () => {
+      this.closeModal()
+      if (online) {
+        this.goTo('NetLudo', { maxPlayers: 2 })
+        return
+      }
       const order = ['blue', 'green', 'yellow', 'red']
       const players = {}
       order.forEach((c, i) => {
@@ -463,7 +465,6 @@ export class HomeScene extends UIScene {
         else players[c] = 'off'
       })
       if (s.mode === 'cpu') store.setSetting('difficulty', s.difficulty)
-      this.closeModal()
       this.goTo('Classic', { players, difficulty: s.difficulty })
     })
   }

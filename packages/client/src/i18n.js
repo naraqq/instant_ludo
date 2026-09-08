@@ -49,8 +49,16 @@ const STRINGS = {
     'setup.playAgainst': 'PLAY AGAINST',
     'setup.computer': 'Computer',
     'setup.local': 'Local',
+    'setup.online': 'Online 1v1',
     'setup.difficulty': 'BOT DIFFICULTY',
     'setup.start': 'START MATCH',
+
+    'net.connecting': 'Connecting…',
+    'net.waiting': 'Waiting for an opponent…\n({n}/{max})',
+    'net.theirTurn': "{name}'s turn",
+    'net.connectFailed': 'Could not connect.\nBack to menu…',
+    'net.disconnected': 'Disconnected',
+    'net.reconnecting': 'Reconnecting…',
 
     'settings.title': 'SETTINGS',
     'settings.sound': 'Sound',
@@ -150,8 +158,16 @@ const STRINGS = {
     'setup.playAgainst': 'ЭСРЭГ ТАЛ',
     'setup.computer': 'Компьютер',
     'setup.local': 'Ээлжлэн',
+    'setup.online': 'Онлайн 1v1',
     'setup.difficulty': 'БОТЫН ХҮНДРЭЛ',
     'setup.start': 'ЭХЛҮҮЛЭХ',
+
+    'net.connecting': 'Холбогдож байна…',
+    'net.waiting': 'Өрсөлдөгч хүлээж байна…\n({n}/{max})',
+    'net.theirTurn': '{name}-ийн ээлж',
+    'net.connectFailed': 'Холбогдож чадсангүй.\nЦэс рүү буцаж байна…',
+    'net.disconnected': 'Холболт тасарлаа',
+    'net.reconnecting': 'Дахин холбогдож байна…',
 
     'settings.title': 'ТОХИРГОО',
     'settings.sound': 'Дуу',
