@@ -12,7 +12,9 @@ const game = new Phaser.Game({
   backgroundColor: '#141821',
   scale: {
     mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    // top-align: a tall phone should letterbox BELOW the action bar, never push
+    // the board down behind the browser's top chrome
+    autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
     width: 720,
     height: 1280,
   },

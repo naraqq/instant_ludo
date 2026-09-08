@@ -15,14 +15,17 @@ body {
 
 #app {
   width: 100vw;
+  /* dynamic viewport height: tracks the mobile browser's retracting toolbars
+     so the bottom of the game is never hidden behind them */
   height: 100vh;
+  height: 100dvh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;   /* pin to the top; letterbox falls below */
   justify-content: center;
   overflow: hidden;
 }
 
 canvas {
   display: block;
-  margin: auto;
+  margin: 0 auto;
 }
