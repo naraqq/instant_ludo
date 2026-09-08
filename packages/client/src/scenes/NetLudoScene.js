@@ -3,10 +3,9 @@
 // renders `room.state` and plays the `events` the server broadcasts.
 import { W, H } from '../config.js'
 import { UIScene } from '../ui/UIScene.js'
-import { DUR, EASE, dur, prefersReducedMotion } from '../ui/tokens.js'
+import { EASE, dur } from '../ui/tokens.js'
 import { sfx } from '../audio.js'
 import { t } from '../i18n.js'
-import { drawRestingDice } from '../ui/dice3d.js'
 import { COLOR_HEX, COLORS, PAWN_ASSETS, POWER_TYPES } from '@ludo/engine'
 import { GeometryMixin } from './classic/geometry.js'
 import { BoardViewMixin } from './classic/boardView.js'
@@ -14,6 +13,7 @@ import { PlayersMixin } from './classic/players.js'
 import { PawnsMixin } from './classic/pawns.js'
 import { PowersMixin } from './classic/powers.js'
 import { CombatMixin } from './classic/combat.js'
+import { DiceAnimMixin } from './classic/diceAnim.js'
 import { TILE, BOARD_Y, TURN_SECONDS } from './classic/constants.js'
 import { joinMatch, createRoom, joinByCode, tryReconnect, clearReconnect } from '../net/room.js'
 
@@ -260,7 +260,7 @@ export class NetLudoScene extends UIScene {
     }
     if (this.gameOver) { this.header.setText(''); return }
     const c = this.currentColor
-    this.header.setText(this.currentColor === this.myColor && !this._animating
+    this.header.setText(c === this.myColor
       ? t('classic.yourTurn') : t('net.theirTurn', { name: this.playerName(c) }))
       .setColor(`#${(COLOR_HEX[c] ?? 0xffffff).toString(16).padStart(6, '0')}`)
   }
@@ -360,6 +360,10 @@ export class NetLudoScene extends UIScene {
       .finally(() => { this._pendingBatches-- })
   }
 
+  // more turns are already waiting behind the one we're playing - the opponent
+  // is acting faster than we can animate, so compress playback to catch up
+  get _behind() { return this._pendingBatches > 2 }
+
   async playEvents(events) {
     this._animating = true
     this.phase = 'moving'
@@ -406,35 +410,11 @@ export class NetLudoScene extends UIScene {
     }
   }
 
-  pause(ms) { return new Promise((r) => this.time.delayedCall(dur(ms), r)) }
+  pause(ms) { return new Promise((r) => this.time.delayedCall(dur(this._behind ? Math.min(ms, 30) : ms), r)) }
 
   playRoll(ev) {
-    const dice = this.cornerDice?.[ev.color]
-    sfx.roll?.()
-    if (!dice || prefersReducedMotion) {
-      if (dice) { drawRestingDice(dice.face, ev.raw); dice.value = ev.raw }
-      return this.pause(260)
-    }
-    dice.face2?.setVisible(Boolean(ev.doubled))
-    dice.shadow2?.setVisible(Boolean(ev.doubled))
-    const spin = { t: 0 }
-    return new Promise((res) => {
-      this.tweens.add({
-        targets: spin, t: 1, duration: dur(520), ease: 'Cubic.easeOut',
-        onUpdate: () => {
-          const face = spin.t < 0.82 ? 1 + (Math.floor(spin.t * 16) % 6) : ev.raw
-          drawRestingDice(dice.face, face)
-          dice.face.setAngle(spin.t * 520 % 360)
-          if (ev.doubled) { drawRestingDice(dice.face2, face); dice.face2.setAngle(-spin.t * 520 % 360) }
-        },
-        onComplete: () => {
-          dice.face.setAngle(0); drawRestingDice(dice.face, ev.raw); dice.value = ev.raw
-          if (ev.doubled) { dice.face2.setAngle(0); drawRestingDice(dice.face2, ev.raw) }
-          sfx.land?.(ev.raw)
-          res()
-        },
-      })
-    })
+    // same 3D tumble as the Classic scene, just driven by the server's value
+    return this.animateDiceTumble(ev.color, ev.raw, { doubled: Boolean(ev.doubled), instant: this._behind })
   }
 
   playPowerUsed(ev) {
@@ -452,6 +432,7 @@ export class NetLudoScene extends UIScene {
     const from = pawn.steps
     pawn.steps = ev.to
     pawn.finished = ev.to >= 56
+    if (this._behind) { this.positionPawn(pawn, false); this.reflowPawns(false); return Promise.resolve() }
     return new Promise((res) => this.animatePawn(pawn, from, ev.to, res))
   }
 
@@ -550,4 +531,5 @@ Object.assign(
   PawnsMixin,
   PowersMixin,
   CombatMixin,
+  DiceAnimMixin,
 )

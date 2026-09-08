@@ -11,6 +11,7 @@ import { PawnsMixin } from './classic/pawns.js'
 import { PowersMixin } from './classic/powers.js'
 import { CombatMixin } from './classic/combat.js'
 import { DiceMixin } from './classic/dice.js'
+import { DiceAnimMixin } from './classic/diceAnim.js'
 import { TurnMixin } from './classic/turn.js'
 
 // The scene shell: lifecycle (init/preload/create) plus the turn-rotation
@@ -195,6 +196,7 @@ Object.assign(
   PawnsMixin,
   PowersMixin,
   CombatMixin,
+  DiceAnimMixin,
   DiceMixin,
   TurnMixin,
 )
