@@ -28,6 +28,97 @@ export const DiceAnimMixin = {
     }
   },
 
+  // Start the die tumbling in place before we know the result (the online scene
+  // spins the instant you tap, then settles when the server's value arrives, so
+  // the tap feels as immediate as local play). Returns { stop }.
+  spinDice(color, { doubled = false } = {}) {
+    const dice = this.cornerDice?.[color]
+    if (!dice) return { stop() {} }
+    const tray = dice.container
+    const spread = doubled ? 44 : 0
+    dice.face2.setVisible(doubled)
+    dice.shadow2.setVisible(doubled)
+    this.tweens.killTweensOf(tray)
+    tray.setVisible(true).setAlpha(1).setScale(1).setAngle(0).setY(POD[color].dy)
+    dice.glow.setVisible(false).setAlpha(0)
+    sfx.roll?.()
+    sfx.buzz?.(12)
+    const pose = { ...dice.pose, tilt: 1 }
+    const pose2 = { ...dice.pose, tilt: 1 }
+    const lift = 34
+    const paint = (g, p, baseX) => {
+      drawDice(g, p)
+      g.setPosition(baseX, -1 - lift).setScale(1.35, 1.35)
+    }
+    const timer = this.time.addEvent({
+      delay: 16, loop: true,
+      callback: () => {
+        pose.x += 0.38; pose.y += 0.52
+        paint(dice.face, pose, -spread)
+        dice.shadow.setPosition(2 - spread, 25).setScale(0.8).setAlpha(0.16)
+        if (doubled) {
+          pose2.x += 0.3; pose2.y -= 0.42
+          paint(dice.face2, pose2, spread)
+          dice.shadow2.setPosition(2 + spread, 25).setScale(0.8).setAlpha(0.16)
+        }
+      },
+    })
+    return {
+      stop() { timer.remove(false); dice.pose = { ...pose } },
+    }
+  },
+
+  // Quick drop from a spin onto the resolved face (~260ms). Pairs with spinDice.
+  settleDice(color, rawValue, { doubled = false } = {}) {
+    const dice = this.cornerDice?.[color]
+    if (!dice) return Promise.resolve()
+    const spread = doubled ? 44 : 0
+    const start = { ...dice.pose }
+    const target = dicePose(rawValue)
+    const prog = { t: 0 }
+    return new Promise((resolve) => {
+      this.tweens.add({
+        targets: prog, t: 1,
+        duration: prefersReducedMotion ? 60 : 260,
+        ease: 'Back.easeOut',
+        onUpdate: () => {
+          const e = prog.t
+          const p = {
+            x: start.x + (target.x + Math.PI * 2 - start.x) * e,
+            y: start.y + (target.y + Math.PI * 2 - start.y) * e,
+            tilt: 1 - e,
+          }
+          const h = (1 - e) * 12
+          const paint = (g, baseX) => {
+            if (e >= 1) { drawRestingDice(g, rawValue); return }
+            drawDice(g, p)
+            g.setPosition(baseX, -1 - h).setScale(1 + (1 - e) * 0.3)
+          }
+          paint(dice.face, -spread)
+          if (doubled) paint(dice.face2, spread)
+        },
+        onComplete: () => {
+          dice.pose = target
+          dice.value = rawValue
+          dice.face.setPosition(-spread, -1).setScale(1)
+          dice.shadow.setPosition(2 - spread, 25).setScale(1).setAlpha(0.3)
+          drawRestingDice(dice.face, rawValue)
+          if (doubled) {
+            dice.face2.setVisible(true).setPosition(spread, -1).setScale(1)
+            dice.shadow2.setVisible(true).setPosition(2 + spread, 25).setScale(1).setAlpha(0.3)
+            drawRestingDice(dice.face2, rawValue)
+          }
+          sfx.land?.(rawValue)
+          sfx.buzz?.(rawValue === 6 ? 28 : 14)
+          if (!prefersReducedMotion) {
+            this.popAt(dice.container.x, dice.container.y + 20, rawValue === 6 || doubled ? 0xffd54d : COLOR_HEX[color])
+          }
+          resolve()
+        },
+      })
+    })
+  },
+
   // Tumble `this.cornerDice[color]` to `rawValue`; resolves when it lands.
   animateDiceTumble(color, rawValue, { doubled = false, instant = false } = {}) {
     const dice = this.cornerDice?.[color]

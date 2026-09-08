@@ -41,6 +41,9 @@ export class NetLudoScene extends UIScene {
     this._pendingBatches = 0
     this.forcedDiceValue = null
     this.doubleNextRoll = false
+    this._diceSpin = null      // in-flight optimistic dice spin (local roll)
+    this._predicted = null     // { color, pawnId, to } move we've already animated
+    this._moveAnimDone = null  // promise for that optimistic move animation
   }
 
   // ---- shims the reused rendering mixins read ----
@@ -123,7 +126,15 @@ export class NetLudoScene extends UIScene {
     const room = this.room
     room.onError((code, msg) => console.warn('[net] room error', code, msg))
     room.onLeave(() => { if (!this.gameOver) this.status?.setVisible(true).setText(t('net.disconnected')) })
-    room.onMessage('rejected', (m) => { this.showToast(m?.error || 'rejected'); this._sending = false })
+    room.onMessage('rejected', (m) => {
+      this.showToast(m?.error || 'rejected')
+      // an optimistic roll/move was refused - drop the prediction and snap back
+      this._diceSpin?.stop?.(); this._diceSpin = null
+      this._predicted = null; this._moveAnimDone = null
+      if (this.g) { this.syncPositions(false); this.syncBonusRunes() }
+      this._animating = false
+      this.refreshTurn()
+    })
     room.onMessage('events', (events) => this.enqueue(events))
     room.onStateChange(() => this.onStateChange())
   }
@@ -160,10 +171,12 @@ export class NetLudoScene extends UIScene {
 
     if (first) { this.status?.setVisible(false); this.buildBoard() }
     else if (!this._animating && !this._pendingBatches) {
+      // no animation in flight - safe to jump straight to the server's truth
       this.syncPositions(true)
       this.syncBonusRunes()
+      this.refreshTurn()
     }
-    this.refreshTurn()
+    // while animating, playEvents() owns the turn UI so it never runs ahead
   }
 
   showLobby(s) {
@@ -296,13 +309,13 @@ export class NetLudoScene extends UIScene {
     // a still-open gate pick resolves server-side when we roll
     if (this._gatePickChoose) this.closeGatePicker()
     sfx.tap()
-    if (this.forcedDiceValue != null) {
-      const v = this.forcedDiceValue
-      this.forcedDiceValue = null
-      this.room.send('action', { type: 'usePower', key: 'water', value: v })
-    }
+    const forced = this.forcedDiceValue
+    this.forcedDiceValue = null
     this._animating = true
     this.updatePawnHighlights()
+    // spin the die right now; playRoll() lands it on the server's value
+    this._diceSpin = this.spinDice(this.myColor, { doubled: this.doubleNextRoll })
+    if (forced != null) this.room.send('action', { type: 'usePower', key: 'water', value: forced })
     this.room.send('action', { type: 'roll' })
   }
 
@@ -315,7 +328,8 @@ export class NetLudoScene extends UIScene {
     this.room.send('action', { type: 'usePower', key })
     if (key === 'fire') {
       this._animating = true
-      this.time.delayedCall(200, () => this.room.send('action', { type: 'roll' }))
+      this._diceSpin = this.spinDice(this.myColor, { doubled: true })
+      this.time.delayedCall(160, () => this.room.send('action', { type: 'roll' }))
     }
   }
 
@@ -324,7 +338,15 @@ export class NetLudoScene extends UIScene {
     if (pawn.color !== this.myColor || !this.canMove(pawn)) return
     sfx.tap()
     this._animating = true
+    // the moving pawn's landing square is deterministic - animate it now and let
+    // the server's `moved` event just confirm it
+    const from = pawn.steps
+    const to = from < 0 ? 0 : Math.min(56, from + this.diceValue)
+    this._predicted = { color: this.myColor, pawnId: pawn.id, to }
+    pawn.steps = to
+    pawn.finished = to >= 56
     this.updatePawnHighlights()
+    this._moveAnimDone = new Promise((res) => this.animatePawn(pawn, from, to, res))
     this.room.send('action', { type: 'move', pawnId: pawn.id })
   }
 
@@ -362,7 +384,7 @@ export class NetLudoScene extends UIScene {
 
   // more turns are already waiting behind the one we're playing - the opponent
   // is acting faster than we can animate, so compress playback to catch up
-  get _behind() { return this._pendingBatches > 2 }
+  get _behind() { return this._pendingBatches > 1 }
 
   async playEvents(events) {
     this._animating = true
@@ -373,6 +395,13 @@ export class NetLudoScene extends UIScene {
       // eslint-disable-next-line no-await-in-loop
       await this.playEvent(ev)
     }
+    // safety: a spin with no matching 'rolled' event - land it on the truth
+    if (this._diceSpin) {
+      this._diceSpin.stop?.(); this._diceSpin = null
+      this.restDice(this.myColor, this.g.raw || 1, { doubled: this.g.doubleNext })
+    }
+    this._predicted = null
+    this._moveAnimDone = null
     this._animating = false
     this.syncPositions(true)
     this.syncBonusRunes()
@@ -413,7 +442,14 @@ export class NetLudoScene extends UIScene {
   pause(ms) { return new Promise((r) => this.time.delayedCall(dur(this._behind ? Math.min(ms, 30) : ms), r)) }
 
   playRoll(ev) {
-    // same 3D tumble as the Classic scene, just driven by the server's value
+    // our own roll is already spinning - just land it
+    if (this._diceSpin && ev.color === this.myColor) {
+      const spin = this._diceSpin
+      this._diceSpin = null
+      spin.stop?.()
+      return this.settleDice(ev.color, ev.raw, { doubled: Boolean(ev.doubled) })
+    }
+    // opponent (or catch-up): same 3D tumble as the Classic scene
     return this.animateDiceTumble(ev.color, ev.raw, { doubled: Boolean(ev.doubled), instant: this._behind })
   }
 
@@ -429,6 +465,16 @@ export class NetLudoScene extends UIScene {
   playMove(ev) {
     const pawn = this.pawnRef(ev.color, ev.pawnId)
     if (!pawn) return Promise.resolve()
+    const pm = this._predicted
+    if (pm && pm.color === ev.color && pm.pawnId === ev.pawnId && pm.to === ev.to) {
+      // we already started this exact move on tap - let it finish
+      this._predicted = null
+      pawn.steps = ev.to
+      pawn.finished = ev.to >= 56
+      const done = this._moveAnimDone || Promise.resolve()
+      this._moveAnimDone = null
+      return done
+    }
     const from = pawn.steps
     pawn.steps = ev.to
     pawn.finished = ev.to >= 56
