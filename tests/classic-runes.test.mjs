@@ -1,35 +1,49 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import vm from 'node:vm'
 import * as board from '../src/scenes/board.js'
-import * as tokens from '../src/ui/tokens.js'
-import * as dice from '../src/ui/dice3d.js'
 import * as pawnMotion from '../src/ui/pawnMotion.js'
 
-// Evaluate the real scene with renderer/audio boundaries stubbed: tests exercise
-// its inventory and turn methods without requiring a DOM or WebGL context.
-const dependencies = {
+// Evaluate the real scene (now split into mixin modules under scenes/classic/)
+// with only the renderer / audio / persistence boundaries stubbed. Every other
+// project module is compiled from disk so the whole graph loads for real.
+const stubs = {
   phaser: { default: {} },
-  '../config.js': { W: 720, H: 1280, CONTENT_W: 720 },
-  '../ui/UIScene.js': { UIScene: class {} },
-  '../ui/tokens.js': tokens,
-  '../ui/dice3d.js': dice,
-  '../ui/pawnMotion.js': pawnMotion,
-  '../audio.js': { sfx: { rune() {}, hop() {} } },
-  '../store.js': { store: {} },
-  '../ai.js': { chooseAiMove() {}, chooseAiPower() {}, bestForcedDice() {} },
-  '../i18n.js': { t: key => key },
-  './board.js': board,
+  '/ui/UIScene.js': { UIScene: class {} },
+  '/audio.js': { sfx: { rune() {}, hop() {} } },
+  '/store.js': { store: {} },
+  '/ai.js': { chooseAiMove() {}, chooseAiPower() {}, bestForcedDice() {} },
+  '/i18n.js': { t: key => key },
 }
-const module = new vm.SourceTextModule(await readFile(new URL('../src/scenes/ClassicScene.js', import.meta.url), 'utf8'))
-await module.link(specifier => {
-  const exports = dependencies[specifier]
-  assert.ok(exports, `Unexpected dependency: ${specifier}`)
+
+function synthetic(exports) {
   return new vm.SyntheticModule(Object.keys(exports), function () {
     for (const [key, value] of Object.entries(exports)) this.setExport(key, value)
   })
-})
+}
+
+const compiled = new Map()
+async function compile(url) {
+  if (compiled.has(url.href)) return compiled.get(url.href)
+  const source = await readFile(fileURLToPath(url), 'utf8')
+  const mod = new vm.SourceTextModule(source, { identifier: url.href })
+  compiled.set(url.href, mod)
+  return mod
+}
+
+async function linker(specifier, referencing) {
+  if (specifier === 'phaser') return synthetic(stubs.phaser)
+  const resolved = new URL(specifier, referencing.identifier)
+  for (const [suffix, exports] of Object.entries(stubs)) {
+    if (suffix !== 'phaser' && resolved.pathname.endsWith(suffix)) return synthetic(exports)
+  }
+  return compile(resolved)
+}
+
+const module = await compile(new URL('../src/scenes/ClassicScene.js', import.meta.url))
+await module.link(linker)
 await module.evaluate()
 const { ClassicScene } = module.namespace
 
@@ -243,13 +257,17 @@ test('winning move does not announce an extra roll', () => {
 for (const steps of [0, 30, 51, 56]) {
   test(`pawn artwork stays aligned on board at step ${steps} and resets in yard`, () => {
     const s = scene()
-    const sprite = { height: 300, y: 12,
+    const sprite = { width: 200, height: 300, y: 12,
       setY(y) { this.y = y; return this },
       setScale(scale) { this.scale = scale; return this },
     }
     const shield = { setY(y) { this.y = y } }
     const zone = { setY(y) { this.y = y } }
-    const parts = { token: { getByName: () => sprite }, shield, zone }
+    const restShadow = {
+      setVisible(v) { this.visible = v; return this },
+      setPosition(x, y) { this.x = x; this.y = y; return this },
+    }
+    const parts = { token: { getByName: () => sprite }, shield, zone, restShadow }
     const data = { onBoard: false }
     const view = { x: 100, y: 200,
       getData: key => data[key], setData: (key, value) => { data[key] = value },
@@ -295,12 +313,13 @@ for (const color of board.COLORS) {
 test('pawn journey resolves only after its final landing settles', () => {
   const s = scene()
   const node = () => ({
-    x: 0, y: 0, height: 300,
+    x: 0, y: 0, width: 200, height: 300,
     setPosition(x, y) { this.x = x; this.y = y; return this },
     setY(y) { this.y = y; return this },
     setAngle(angle) { this.angle = angle; return this },
     setScale(x, y = x) { this.scaleX = x; this.scaleY = y; return this },
     setDepth() { return this }, setAlpha() { return this }, setStrokeStyle() { return this },
+    setVisible() { return this },
     destroy() {}, getData() { return .78 },
   })
   const sprite = node()
