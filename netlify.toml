@@ -1,0 +1,18 @@
+# Netlify builds from the repo root so npm workspaces link @ludo/engine, then
+# publishes the client's Vite output.
+[build]
+  command = "npm run build"
+  publish = "packages/client/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Single-page app: let the client router handle unknown paths.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Set these in the Netlify UI (Site settings -> Environment variables):
+#   VITE_PLAYFAB_TITLE_ID = "18A056"
+#   VITE_COLYSEUS_URL     = "wss://<your-app>.colyseus.cloud"

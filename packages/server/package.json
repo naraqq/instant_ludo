@@ -1,0 +1,26 @@
+{
+  "name": "@ludo/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">= 22.0.0"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "build": "exit 0",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@colyseus/schema": "^5.0.27",
+    "@colyseus/tools": "^0.18.3",
+    "@ludo/engine": "*",
+    "colyseus": "^0.18.5",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@colyseus/testing": "^0.18.5"
+  }
+}

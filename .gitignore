@@ -11,6 +11,12 @@ node_modules
 dist
 dist-ssr
 *.local
+.env.local
+.env.*.local
+
+# Colyseus Cloud deploy credentials (written by `npx @colyseus/cloud deploy`)
+.colyseus-cloud.json
+.devmode.json
 
 # Editor directories and files
 .vscode/*

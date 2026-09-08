@@ -1,18 +1,16 @@
 {
-  "name": "instant-game",
+  "name": "elemental-ludo",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "devDependencies": {
-    "vite": "^5.4.19"
-  },
-  "dependencies": {
-    "colyseus.js": "^0.16.22",
-    "phaser": "^4.2.1"
+    "dev": "npm run dev -w @ludo/client",
+    "build": "npm run build -w @ludo/client",
+    "preview": "npm run preview -w @ludo/client",
+    "server": "npm run dev -w @ludo/server",
+    "test": "npm run test -ws --if-present"
   }
 }
