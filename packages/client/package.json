@@ -10,8 +10,8 @@
     "test": "node --experimental-vm-modules --test"
   },
   "dependencies": {
+    "@colyseus/sdk": "^0.18.2",
     "@ludo/engine": "*",
-    "colyseus.js": "^0.16.22",
     "phaser": "^4.2.1"
   },
   "devDependencies": {
