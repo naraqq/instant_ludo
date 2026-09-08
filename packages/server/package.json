@@ -16,7 +16,7 @@
   "dependencies": {
     "@colyseus/schema": "^5.0.27",
     "@colyseus/tools": "^0.18.3",
-    "@ludo/engine": "*",
+    "@ludo/engine": "file:../engine",
     "colyseus": "^0.18.5",
     "express": "^5.2.1"
   },
