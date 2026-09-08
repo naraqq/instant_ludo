@@ -37,6 +37,16 @@ test('a lone human still gets a full table of bots', async () => {
   c1.leave()
 })
 
+test('a lone quick-match player is given bots after the lobby wait', async () => {
+  const room = await colyseus.createRoom('ludo', { maxPlayers: 4, botThinkMs: 999_999, turnSeconds: 999, lobbyWaitMs: 50 })
+  const c1 = await colyseus.connectTo(room, { name: 'Alone' })
+  quiet(c1)
+  await wait(150)
+  assert.equal(room.state.phase, 'playing')
+  assert.equal([...room.state.seats.values()].filter((s) => s.bot).length, 3)
+  c1.leave()
+})
+
 test('only the player whose turn it is may act', async () => {
   const room = await colyseus.createRoom('ludo', { maxPlayers: 4, botThinkMs: 999_999, turnSeconds: 999 })
   const a = await colyseus.connectTo(room, { name: 'A' })

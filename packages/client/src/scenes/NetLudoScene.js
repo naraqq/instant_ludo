@@ -168,7 +168,8 @@ export class NetLudoScene extends UIScene {
 
   showLobby(s) {
     const humans = [...s.seats.values()].filter((x) => !x.bot).length
-    this.status?.setVisible(true).setText(t('net.waiting', { n: humans, max: s.maxSeats }))
+    const max = s.maxSeats || this.matchConfig.maxPlayers || 2
+    this.status?.setVisible(true).setText(t('net.waiting', { n: humans, max }))
     if (this.lobby) { this.updateLobby(s); return }
     this.lobby = this.add.container(W / 2, H / 2 + 60).setDepth(50)
     if (s.code) {

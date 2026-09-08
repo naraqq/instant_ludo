@@ -30,6 +30,7 @@ export class LudoRoom extends Room {
     // test hooks - production leaves these at the defaults above / in the engine
     this.botThinkMs = Number(options?.botThinkMs) || BOT_THINK_MS
     this.turnSecondsOverride = Number(options?.turnSeconds) || 0
+    this.lobbyWaitMs = Number(options?.lobbyWaitMs) || LOBBY_WAIT_MS
     this.engine = null
     this.autoDispose = true
 
@@ -85,9 +86,10 @@ export class LudoRoom extends Room {
 
     if (this.humanSeats().length >= this.maxClients) {
       this.startMatch()
-    } else if (!this.private && this.humanSeats().length >= 2 && !this.lobbyTimer) {
-      // quick match: don't wait forever for a 3rd/4th - fill with bots
-      this.lobbyTimer = this.clock.setTimeout(() => this.startMatch(), LOBBY_WAIT_MS)
+    } else if (!this.private && !this.lobbyTimer) {
+      // quick match: give real opponents a short window to arrive, then
+      // fill the empty seats with bots so a lone player still gets a game
+      this.lobbyTimer = this.clock.setTimeout(() => this.startMatch(), this.lobbyWaitMs)
     }
     // private rooms wait for the room to fill or for the host to press "start"
   }
