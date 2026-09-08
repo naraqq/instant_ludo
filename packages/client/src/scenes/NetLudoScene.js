@@ -41,7 +41,7 @@ export class NetLudoScene extends UIScene {
     this._pendingBatches = 0
     this.forcedDiceValue = null
     this.doubleNextRoll = false
-    this._diceSpin = null      // in-flight optimistic dice spin (local roll)
+    this._windup = null      // in-flight dice wind-up shake (local roll, pre-value)
     this._predicted = null     // { color, pawnId, to } move we've already animated
     this._moveAnimDone = null  // promise for that optimistic move animation
   }
@@ -129,7 +129,7 @@ export class NetLudoScene extends UIScene {
     room.onMessage('rejected', (m) => {
       this.showToast(m?.error || 'rejected')
       // an optimistic roll/move was refused - drop the prediction and snap back
-      this._diceSpin?.stop?.(); this._diceSpin = null
+      this._windup?.stop?.(); this._windup = null
       this._predicted = null; this._moveAnimDone = null
       if (this.g) { this.syncPositions(false); this.syncBonusRunes() }
       this._animating = false
@@ -314,7 +314,7 @@ export class NetLudoScene extends UIScene {
     this._animating = true
     this.updatePawnHighlights()
     // spin the die right now; playRoll() lands it on the server's value
-    this._diceSpin = this.spinDice(this.myColor, { doubled: this.doubleNextRoll })
+    this._windup = this.diceWindup(this.myColor, { doubled: this.doubleNextRoll })
     if (forced != null) this.room.send('action', { type: 'usePower', key: 'water', value: forced })
     this.room.send('action', { type: 'roll' })
   }
@@ -328,7 +328,7 @@ export class NetLudoScene extends UIScene {
     this.room.send('action', { type: 'usePower', key })
     if (key === 'fire') {
       this._animating = true
-      this._diceSpin = this.spinDice(this.myColor, { doubled: true })
+      this._windup = this.diceWindup(this.myColor, { doubled: true })
       this.time.delayedCall(160, () => this.room.send('action', { type: 'roll' }))
     }
   }
@@ -396,8 +396,8 @@ export class NetLudoScene extends UIScene {
       await this.playEvent(ev)
     }
     // safety: a spin with no matching 'rolled' event - land it on the truth
-    if (this._diceSpin) {
-      this._diceSpin.stop?.(); this._diceSpin = null
+    if (this._windup) {
+      this._windup.stop?.(); this._windup = null
       this.restDice(this.myColor, this.g.raw || 1, { doubled: this.g.doubleNext })
     }
     this._predicted = null
@@ -442,14 +442,12 @@ export class NetLudoScene extends UIScene {
   pause(ms) { return new Promise((r) => this.time.delayedCall(dur(this._behind ? Math.min(ms, 30) : ms), r)) }
 
   playRoll(ev) {
-    // our own roll is already spinning - just land it
-    if (this._diceSpin && ev.color === this.myColor) {
-      const spin = this._diceSpin
-      this._diceSpin = null
-      spin.stop?.()
-      return this.settleDice(ev.color, ev.raw, { doubled: Boolean(ev.doubled) })
+    // our own roll has been winding up since the tap - drop the shake and play
+    // the real, full tumble (identical to local play) now that we know the value
+    if (this._windup && ev.color === this.myColor) {
+      this._windup.stop?.()
+      this._windup = null
     }
-    // opponent (or catch-up): same 3D tumble as the Classic scene
     return this.animateDiceTumble(ev.color, ev.raw, { doubled: Boolean(ev.doubled), instant: this._behind })
   }
 
