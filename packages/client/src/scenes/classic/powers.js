@@ -1,6 +1,6 @@
-// The power system: the three bottom-bar slots, using fire/water/earth, the
-// water "choose your number" picker, the shield bubble visuals, and the power
-// gates on the track - pass one and you pick a rune for your inventory.
+// The power system: the three bottom-bar slots (fire=double / water=control /
+// earth=shield), the water "choose your number" picker, the shield visuals, the
+// gate picker, and the "+1" bonus-roll runes scattered on the track.
 import Phaser from 'phaser'
 import { W, H } from '../../config.js'
 import { DUR, EASE, dur, prefersReducedMotion } from '../../ui/tokens.js'
@@ -10,9 +10,10 @@ import { drawRestingDice } from '../../ui/dice3d.js'
 import { COLOR_HEX, GATE_INDEXES, SAFE_STOPS, START_INDEX, TRACK } from '@ludo/engine'
 import { BAR_Y, POD_R, POWER_SLOT_KEYS } from './constants.js'
 
-// The four runes offered at a gate, in tile order. 'air' is spent immediately
-// (an extra roll after the move); the rest go to the bottom-bar inventory.
-export const GATE_RUNES = ['fire', 'water', 'earth', 'air']
+// The runes offered at a gate - the three storable powers. 'air' (an extra
+// roll) is no longer here; it lives on the board as the "+1" bonus rune.
+export const GATE_RUNES = ['fire', 'water', 'earth']
+const BONUS_RUNE_COUNT = 4
 
 export const PowersMixin = {
   // Three fixed power slots. The icon is the button; a red corner badge shows
@@ -25,7 +26,8 @@ export const PowersMixin = {
       const x = xs[key]
       const c = this.add.container(x, BAR_Y).setDepth(48).setData('baseScale', 1)
       c.add(this.add.ellipse(4, 42, 66, 16, 0x000000, 0.3))
-      const icon = this.add.image(0, 0, `rune-${key}`).setScale(88 / 240)
+      const icon = this.add.image(0, 0, `power-${key}`)
+      icon.setScale(84 / icon.height)
       icon.name = 'icon'
       c.add(icon)
       const badge = this.add.container(34, -34)
@@ -313,10 +315,11 @@ export const PowersMixin = {
 
   createGates() {
     // A gate is a two-pillar energy barrier drawn across the seam between two
-    // track squares - you walk THROUGH it, you never stop on it. The art is
-    // decoration (fire / water / earth / air); every gate offers all four runes.
+    // track squares - you walk THROUGH it, you never stop on it. The barrier art
+    // is decoration only; passing any gate offers the same three runes.
+    const artFor = ['fire', 'water', 'earth', 'air']
     this.gates = GATE_INDEXES.map((index, i) => {
-      const element = GATE_RUNES[i % GATE_RUNES.length]
+      const element = artFor[i % artFor.length]
       const before = this.getTrackPixel((index - 1 + TRACK.length) % TRACK.length)
       const after = this.getTrackPixel(index)
       const x = (before.x + after.x) / 2
@@ -336,6 +339,81 @@ export const PowersMixin = {
       }
       this.gateViews.push(c)
       return { index, element }
+    })
+  },
+
+  // ---------- "+1" bonus-roll runes (scattered on the track) ----------
+
+  createBonusRunes() {
+    for (let i = 0; i < BONUS_RUNE_COUNT; i++) this.spawnBonusRune(i)
+  },
+
+  spawnBonusRune(slot) {
+    const blocked = this.bonusRunes.filter((r) => r.slot !== slot).map((r) => r.index)
+    const rune = { slot, index: this.freeTrackIndex(blocked) }
+    this.bonusRunes = this.bonusRunes.filter((r) => r.slot !== slot)
+    this.bonusRunes.push(rune)
+    const old = this.bonusRuneViews.get(slot)
+    if (old) { this.tweens.killTweensOf(old); old.destroy() }
+    this.bonusRuneViews.set(slot, this.createBonusRuneView(rune))
+  },
+
+  freeTrackIndex(blocked) {
+    const taken = new Set(
+      this.pawns.map((p) => this.getPawnCell(p)).filter((c) => c.type === 'track').map((c) => c.index)
+    )
+    const gates = new Set(GATE_INDEXES)
+    const options = TRACK
+      .map((_, i) => i)
+      .filter((i) => !SAFE_STOPS.has(i) && !gates.has(i) && !taken.has(i) && !blocked.includes(i))
+    return Phaser.Utils.Array.GetRandom(options.length ? options : TRACK.map((_, i) => i))
+  },
+
+  createBonusRuneView(rune) {
+    const { x, y } = this.getTrackPixel(rune.index)
+    const c = this.add.container(x, y).setDepth(18)
+    c.add(this.add.ellipse(2, 14, 24, 7, 0x000000, 0.3))
+    const icon = this.add.image(0, -2, 'rune-bonus')
+    icon.setScale(36 / icon.height)
+    c.add(icon)
+    if (!prefersReducedMotion) {
+      this.tweens.add({
+        targets: c, y: y - 5, scale: 1.06,
+        duration: 900, yoyo: true, repeat: -1, ease: EASE.breathe,
+      })
+    }
+    return c
+  },
+
+  // Called from the move driver once a pawn settles. Landing on a "+1" rune
+  // grants an extra roll (the old air power), then the rune respawns elsewhere.
+  collectBonusRune(pawn) {
+    const cell = this.getPawnCell(pawn)
+    if (cell.type !== 'track') return
+    const rune = this.bonusRunes.find((r) => r.index === cell.index)
+    if (!rune) return
+    this.bonusRunes = this.bonusRunes.filter((r) => r !== rune)
+    sfx.rune()
+    if (pawn.color === this.currentColor && this.phase === 'moving') {
+      this.extraRollNextTurn = true
+    } else {
+      this.pendingExtraRoll.add(pawn.color)
+    }
+    this.animateBonusCollect(rune, pawn.color, () => this.spawnBonusRune(rune.slot))
+  },
+
+  animateBonusCollect(rune, color, onComplete = () => {}) {
+    const view = this.bonusRuneViews.get(rune.slot)
+    this.bonusRuneViews.delete(rune.slot)
+    if (!view) { onComplete(); return }
+    this.tweens.killTweensOf(view)
+    view.setDepth(60)
+    if (prefersReducedMotion) { view.destroy(); onComplete(); return }
+    this.popAt(view.x, view.y, 0xffd54d)
+    this.tweens.add({
+      targets: view, y: view.y - 16, scale: 1.5, alpha: 0,
+      duration: 260, ease: EASE.out,
+      onComplete: () => { view.destroy(); onComplete() },
     })
   },
 
@@ -374,19 +452,7 @@ export const PowersMixin = {
   },
 
   applyGateRune(color, key) {
-    if (key !== 'air') {
-      this.powerInventory[color][key]++
-      this.updatePowerButtons()
-      return
-    }
-    // Air is a bonus roll. If the move that opened this gate is still resolving
-    // (a bot, or a lightning-fast human pick) apply it to this turn; otherwise
-    // bank it for the player's next turn so play never stalls on the choice.
-    if (color === this.currentColor && this.phase === 'moving') {
-      this.extraRollNextTurn = true
-    } else {
-      this.pendingExtraRoll.add(color)
-    }
+    this.powerInventory[color][key]++
     this.updatePowerButtons()
   },
 
@@ -407,9 +473,7 @@ export const PowersMixin = {
       })
     })
     if (exposed && (inv.earth ?? 0) < 2) return 'earth'
-    const weights = GATE_RUNES.map((key) =>
-      key === 'air' ? 2 : Math.max(1, 3 - (inv[key] ?? 0))
-    )
+    const weights = GATE_RUNES.map((key) => Math.max(1, 3 - (inv[key] ?? 0)))
     const total = weights.reduce((a, w) => a + w, 0)
     let roll = Math.random() * total
     for (let i = 0; i < GATE_RUNES.length; i++) {
@@ -421,31 +485,22 @@ export const PowersMixin = {
 
   animateGateGrant(color, key, at) {
     const ownInventory = color === this.powerBarColor && !this.isBot(color)
-    const target = ownInventory && key !== 'air'
-      ? this.powerButtons?.[key]?.container
-      : this.playerBadges?.[color]
+    const target = ownInventory ? this.powerButtons?.[key]?.container : this.playerBadges?.[color]
     const flash = () => {
-      if (ownInventory && key !== 'air' && color === this.powerBarColor) this.flashPower(key)
+      if (ownInventory && color === this.powerBarColor) this.flashPower(key)
     }
-    if (prefersReducedMotion) {
+    if (prefersReducedMotion || !target) {
       flash()
       return
     }
-    const icon = this.add.image(at.x, at.y - 6, `rune-${key}`).setScale(46 / 240).setDepth(80)
-    this.popAt(at.x, at.y, key === 'air' ? 0xffd54d : COLOR_HEX[color])
-    if (key === 'air' || !target) {
-      // Air is spent as a bonus roll - burst on the spot rather than fly to a slot.
-      this.tweens.add({
-        targets: icon, y: icon.y - 24, scale: 1.3, alpha: 0,
-        duration: 240, ease: EASE.out, onComplete: () => icon.destroy(),
-      })
-      return
-    }
+    const icon = this.add.image(at.x, at.y - 6, `power-${key}`).setDepth(80)
+    icon.setScale(50 / icon.height)
+    this.popAt(at.x, at.y, COLOR_HEX[color])
     this.tweens.add({
       targets: icon,
       x: target.x,
       y: target.y,
-      scale: 0.35,
+      scale: icon.scale * 0.4,
       alpha: 0,
       duration: 340,
       ease: 'Cubic.easeInOut',
@@ -457,10 +512,10 @@ export const PowersMixin = {
     if (this.gatePicker) this.closeGatePicker()
 
     const panelW = 372
-    const panelH = 392
-    const cols = [-90, 90]
-    const tileW = 156
-    const tileH = 134
+    const panelH = 268
+    const tileW = 106
+    const tileH = 154
+    const xs = [-116, 0, 116] // one row of three
     const panelY = H / 2
 
     const overlay = this.add.container(0, 0).setDepth(120)
@@ -499,21 +554,20 @@ export const PowersMixin = {
     this._gatePickChoose = choose
 
     const labelKey = {
-      fire: 'home.powerFire', water: 'home.powerWater',
-      earth: 'home.powerEarth', air: 'home.powerAir',
+      fire: 'home.powerFire', water: 'home.powerWater', earth: 'home.powerEarth',
     }
     const tiles = []
+    const gy = -panelH / 2 + 46 + tileH / 2
     GATE_RUNES.forEach((key, i) => {
-      const gx = cols[i % 2]
-      const gy = -panelH / 2 + 74 + Math.floor(i / 2) * (tileH + 16) + tileH / 2
+      const gx = xs[i]
       const slot = this.add.container(gx, gy).setData('baseScale', 1)
       const bg = this.add.image(0, 0, 'gate-tile')
       bg.name = 'bg'
-      const icon = this.add.image(0, -18, `gate-${key}`)
-      icon.setScale(96 / icon.height)
+      const icon = this.add.image(0, -22, `power-${key}`)
+      icon.setScale(76 / icon.height)
       const label = this.add.text(0, 50, t(labelKey[key]), {
-        fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#efe8ff', fontStyle: 'bold',
-        align: 'center', wordWrap: { width: tileW - 22 },
+        fontFamily: 'Verdana, sans-serif', fontSize: 11, color: '#efe8ff', fontStyle: 'bold',
+        align: 'center', wordWrap: { width: tileW - 12 },
       }).setOrigin(0.5)
       slot.add([bg, icon, label])
       panel.add(slot)

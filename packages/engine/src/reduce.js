@@ -69,7 +69,9 @@ function autoResolveGate(s, events) {
 
 function closeTurn(s, events, color, extraReason) {
   if (!extraReason) advanceTurn(s)
-  if (s.shielded[color]) s.shieldExpiresOnRoll[color] = true
+  // a bonus roll continues this turn, so the shield must survive it - only arm
+  // the expiry once the turn genuinely passes to another player
+  if (!extraReason && s.shielded[color]) s.shieldExpiresOnRoll[color] = true
   s.extraRoll = false
   s.dice = 0
   s.raw = 0

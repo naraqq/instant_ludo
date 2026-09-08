@@ -80,12 +80,15 @@ export class ClassicScene extends UIScene {
       this.load.image(`pawn-${color}-sm`, `assets/sprites/pawn-${asset}-sm.png`)
     })
     POWER_TYPES.forEach((type) => this.load.image(`rune-${type}`, `assets/sprites/rune-${type}.png`))
-    POWER_TYPES.forEach((type) => {
-      // gateline-*: pillars + energy barrier, drawn across a track seam.
-      this.load.image(`gateline-${type}`, `assets/sprites/gateline-${type}.png`)
-      // gate-*: the full elemental portal, shown big in the rune picker.
-      this.load.image(`gate-${type}`, `assets/sprites/gate-${type}.png`)
-    })
+    // power-*: the fire/water/earth power icons (double / control / shield),
+    // shown on the bottom bar and in the gate picker.
+    ;['fire', 'water', 'earth'].forEach((type) =>
+      this.load.image(`power-${type}`, `assets/sprites/power-${type}.png`))
+    // gateline-*: pillars + energy barrier, drawn across a track seam.
+    POWER_TYPES.forEach((type) =>
+      this.load.image(`gateline-${type}`, `assets/sprites/gateline-${type}.png`))
+    // the "+1" bonus-roll rune, scattered on the board
+    this.load.image('rune-bonus', 'assets/sprites/rune-bonus.png')
   }
 
   create() {
@@ -104,6 +107,8 @@ export class ClassicScene extends UIScene {
     )
     this.gateViews = []
     this.gates = []
+    this.bonusRunes = []
+    this.bonusRuneViews = new Map()
     this.homeMarks = []
     this.gatePicker = null
     this.gatePickerTimeout = null
@@ -132,6 +137,7 @@ export class ClassicScene extends UIScene {
     this.createBottomBar()
     this.createPawns()
     this.createGates()
+    this.createBonusRunes()
     this.reflowPawns(false)
     this.refreshTurnUI()
     this.enterScene()
@@ -145,7 +151,7 @@ export class ClassicScene extends UIScene {
       return
     }
 
-    const sprites = [...this.pawnViews.values(), ...this.gateViews]
+    const sprites = [...this.pawnViews.values(), ...this.gateViews, ...this.bonusRuneViews.values()]
     sprites.forEach((v) => this.tweens.killTweensOf(v))
     sprites.forEach((v) => v.setAlpha(0))
 

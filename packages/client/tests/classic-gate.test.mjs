@@ -76,6 +76,7 @@ function scene() {
   s.tweens = { add: config => s.pending.push(config), killTweensOf: target => s.killed.push(target) }
   s.popAt = () => {}
   s.markPawnHome = () => {}
+  s.collectBonusRune = () => {}
   s.flashes = []
   s.flashPower = key => s.flashes.push(key)
   s.getPawnCell = pawn => ({ type: 'track', index: pawn.index })
@@ -129,25 +130,35 @@ test('moveCrossesGate flags a move that walks through a gate', () => {
   assert.equal(s.moveCrossesGate('red', 4, 6), false)
 })
 
-test('applyGateRune stores fire/water/earth; air resolves now or banks for later', () => {
+test('applyGateRune adds the chosen storable power to the inventory', () => {
   const s = scene()
   s.applyGateRune('blue', 'fire')
   assert.equal(s.powerInventory.blue.fire, 1)
   assert.equal(s.powerButtons.fire.countText.text, '1')
+  s.applyGateRune('blue', 'earth')
+  assert.equal(s.powerInventory.blue.earth, 1)
+})
 
-  // picked while blue's move is still resolving -> bonus roll applies to this turn
+test('landing on a "+1" rune grants an extra roll and respawns it', () => {
+  const s = scene()
+  delete s.collectBonusRune // use the real method, not the scene() stub
   s.phase = 'moving'
-  s.applyGateRune('blue', 'air')
-  assert.equal(s.extraRollNextTurn, true)
-  assert.equal(s.pendingExtraRoll.has('blue'), false)
+  s.currentPlayer = 0 // blue
+  s.bonusRunes = [{ slot: 0, index: 7 }, { slot: 1, index: 20 }]
+  s.bonusRuneViews = new Map()
+  const respawned = []
+  s.spawnBonusRune = (slot) => respawned.push(slot)
+  s.animateBonusCollect = (_r, _c, done) => done()
 
-  // picked after the turn has moved on -> banked for blue's next turn
+  s.collectBonusRune({ color: 'blue', index: 7 })
+  assert.equal(s.extraRollNextTurn, true)
+  assert.equal(s.bonusRunes.length, 1)
+  assert.deepEqual(respawned, [0])
+
+  // a pawn on a plain square collects nothing
   s.extraRollNextTurn = false
-  s.phase = 'roll'
-  s.currentPlayer = 1
-  s.applyGateRune('blue', 'air')
+  s.collectBonusRune({ color: 'blue', index: 99 })
   assert.equal(s.extraRollNextTurn, false)
-  assert.equal(s.pendingExtraRoll.has('blue'), true)
 })
 
 test('resolveGatePass does nothing when the move missed every gate', () => {

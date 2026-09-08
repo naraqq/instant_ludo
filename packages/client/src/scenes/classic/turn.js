@@ -33,6 +33,8 @@ export const TurnMixin = {
       // Kick off the gate rune pick, but don't wait on it - the turn plays on
       // and a human resolves the picker over the top of the ongoing game.
       this.resolveGatePass(pawn)
+      // Landing on a "+1" rune grants this player an extra roll.
+      this.collectBonusRune(pawn)
 
       const captured = this.collectCaptures(pawn)
       const finishTurn = () => {
@@ -48,7 +50,9 @@ export const TurnMixin = {
           : captured.length > 0 ? 'capture'
             : pawn.finished ? 'finish' : this.rawDiceValue === 6 ? 'six' : null
         if (!extraReason) this.advanceTurn()
-        if (this.shieldedColors.has(pawn.color)) this.shieldExpiresOnOwnRoll.add(pawn.color)
+        // Only arm the shield's expiry when the turn actually passes - a bonus
+        // roll is a continuation of this turn, so the shield must survive it.
+        if (!extraReason && this.shieldedColors.has(pawn.color)) this.shieldExpiresOnOwnRoll.add(pawn.color)
         this.extraRollNextTurn = false
         this.diceValue = 0
         this.rawDiceValue = 0
@@ -83,7 +87,7 @@ export const TurnMixin = {
     const extraReason = this.extraRollNextTurn ? 'air' : this.rawDiceValue === 6 ? 'six' : null
     this.phase = 'roll'
     if (!extraReason) this.advanceTurn()
-    if (this.shieldedColors.has(color)) this.shieldExpiresOnOwnRoll.add(color)
+    if (!extraReason && this.shieldedColors.has(color)) this.shieldExpiresOnOwnRoll.add(color)
     this.extraRollNextTurn = false
     this.diceValue = 0
     this.rawDiceValue = 0

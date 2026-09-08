@@ -18,7 +18,7 @@ export const BOARD_X = 0
 export const BOARD_Y = (H - BOARD_SIZE) / 2 // board centred vertically
 export const BOARD_BOTTOM = BOARD_Y + BOARD_SIZE
 
-export const BAR_Y = 1206 // bottom action bar
+export const BAR_Y = 1150 // bottom action bar (raised toward the pods for reach)
 
 export const POWER_SLOT_KEYS = ['fire', 'water', 'earth'] // buttons in the bottom bar (air auto-applies)
 
