@@ -4,6 +4,7 @@ import { Client } from '@colyseus/sdk'
 import { ready, session } from './playfab.js'
 
 const URL = import.meta.env.VITE_COLYSEUS_URL || ''
+const AUTH_BASE = URL.replace(/^ws/, 'http') // wss:// -> https:// for the REST routes
 const RECONNECT_KEY = 'ludo_reconnect'
 
 let client = null
@@ -42,15 +43,43 @@ export async function tryReconnect() {
   }
 }
 
-// Join (or create) an online match. `maxPlayers` 2-4; empty seats fill with bots.
-export async function joinMatch({ maxPlayers = 2 } = {}) {
-  if (!URL) throw new Error('online play is not configured')
-  await ready // ensure the anonymous login has resolved
-  const room = await getClient().joinOrCreate('ludo', {
+function joinOpts(extra) {
+  return {
     ticket: session.ticket || undefined,
     name: session.displayName || 'Guest',
-    maxPlayers,
-  })
+    ...extra,
+  }
+}
+
+// Quick match: join any open public room, or make one. Empty seats fill with bots.
+export async function joinMatch({ maxPlayers = 4 } = {}) {
+  if (!URL) throw new Error('online play is not configured')
+  await ready
+  const room = await getClient().joinOrCreate('ludo', joinOpts({ maxPlayers }))
+  stashReconnect(room)
+  return room
+}
+
+// Create a private room; the 6-digit code lands in room.state.code to share.
+export async function createRoom({ maxPlayers = 2 } = {}) {
+  if (!URL) throw new Error('online play is not configured')
+  await ready
+  const room = await getClient().create('ludo', joinOpts({ maxPlayers, private: true }))
+  stashReconnect(room)
+  return room
+}
+
+// Join a private room by its 6-digit code.
+export async function joinByCode(code) {
+  if (!URL) throw new Error('online play is not configured')
+  const clean = String(code || '').replace(/\D/g, '').slice(0, 6)
+  if (clean.length !== 6) throw new Error('enter a 6-digit code')
+  await ready
+  const res = await fetch(`${AUTH_BASE}/find/${clean}`)
+  if (res.status === 404) throw new Error('no room with that code')
+  if (!res.ok) throw new Error('could not look up that code')
+  const { roomId } = await res.json()
+  const room = await getClient().joinById(roomId, joinOpts({}))
   stashReconnect(room)
   return room
 }

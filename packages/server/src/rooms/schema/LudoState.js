@@ -14,6 +14,11 @@ export const Seat = schema({
 export const LudoState = schema({
   // 'lobby' | 'playing' | 'gameover'
   phase: t.string().default('lobby'),
+  // 6-digit join code for private rooms ('' for quick match)
+  code: t.string().default(''),
+  // sessionId of the room host (private rooms) - may press "start"
+  hostId: t.string().default(''),
+  maxSeats: t.number().default(2),
   // colour whose turn it is, '' outside a game
   currentColor: t.string().default(''),
   // room-clock time (ms) the current turn expires at

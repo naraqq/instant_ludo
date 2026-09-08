@@ -1,9 +1,25 @@
-// Pure rule lookups over an engine state. No rendering, no RNG, no mutation.
+// Pure rule lookups over an engine state. No rendering, no mutation. (One
+// function, pickBonusIndex, takes an rng and returns [value, nextRng].)
 import {
   START_INDEX, TRACK, SAFE_STOPS, GATE_INDEXES, HOME_ENTRY, FINISH_STEPS,
 } from './board.js'
+import { rngPick } from './rng.js'
 
 export const TRACK_LEN = TRACK.length // 52
+
+// Where the next "+1" bonus rune lands: a track square that is not a safe stop,
+// not a gate seam, and not already taken. `occupied` = indices to avoid.
+export function pickBonusIndex(occupied, rng) {
+  const blocked = new Set([...occupied, ...GATE_INDEXES])
+  const candidates = []
+  for (let i = 0; i < TRACK_LEN; i++) if (!SAFE_STOPS.has(i) && !blocked.has(i)) candidates.push(i)
+  return rngPick(rng, candidates.length ? candidates : [...Array(TRACK_LEN).keys()])
+}
+
+// Track indices currently occupied by a pawn (for bonus-rune placement).
+export function occupiedTrackIndices(state) {
+  return state.pawns.map((p) => trackIndexOf(p)).filter((i) => i != null)
+}
 
 export function currentColor(state) {
   return state.colors[state.current]

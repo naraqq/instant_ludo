@@ -1,4 +1,4 @@
-import { defineServer, defineRoom, monitor, playground } from 'colyseus'
+import { defineServer, defineRoom, monitor, playground, matchMaker } from 'colyseus'
 import express from 'express'
 import { LudoRoom } from './rooms/LudoRoom.js'
 import { guestLogin } from './playfab.js'
@@ -20,8 +20,24 @@ export default defineServer({
   express: (app) => {
     app.use(express.json())
     app.use('/auth', cors)
+    app.use('/find', cors)
 
     app.get('/health', (_req, res) => res.json({ ok: true, service: 'elemental-ludo' }))
+
+    // Resolve a 6-digit private-room code to its roomId (for joinById).
+    app.get('/find/:code', async (req, res) => {
+      const code = String(req.params.code || '').trim()
+      if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: 'bad code' })
+      try {
+        const rooms = await matchMaker.query({ name: 'ludo' })
+        const room = rooms.find((r) => r.metadata?.code === code && !r.locked)
+        if (!room) return res.status(404).json({ error: 'no room with that code' })
+        res.json({ roomId: room.roomId })
+      } catch (err) {
+        console.error('[find] failed:', err.message)
+        res.status(500).json({ error: 'lookup failed' })
+      }
+    })
 
     // Server-authoritative anonymous login: device id -> PlayFab session ticket.
     app.post('/auth/guest', async (req, res) => {

@@ -9,7 +9,7 @@ import { cloneState } from './state.js'
 import { rngInt, rngPick } from './rng.js'
 import {
   currentColor, findPawn, pawnsOf, legalMoves, canMovePawn, destStep,
-  crossesGate, landingImpact, trackIndexOf, TRACK_LEN,
+  crossesGate, landingImpact, trackIndexOf, occupiedTrackIndices, pickBonusIndex, TRACK_LEN,
 } from './rules.js'
 
 const STORABLE = ['fire', 'water', 'earth']
@@ -43,15 +43,18 @@ function ranking(s) {
   })
 }
 
-// Bank / spend a rune won at a gate. `immediate` true means the move that opened
-// the gate is still resolving, so an air rune fuels THIS turn's extra roll.
-function grantRune(s, color, key, immediate) {
-  if (key === 'air') {
-    if (immediate) s.extraRoll = true
-    else s.pendingExtra[color] = true
-  } else {
-    s.inventory[color][key]++
-  }
+// A gate always grants one of the three storable powers now.
+function grantRune(s, color, key) {
+  s.inventory[color][key]++
+}
+
+// Move the collected "+1" rune to a fresh square.
+function respawnBonusRune(s) {
+  const occupied = [...s.bonusRunes.map((r) => r.index), ...occupiedTrackIndices(s)]
+  let index
+  ;[index, s.rng] = pickBonusIndex(occupied, s.rng)
+  s.bonusRunes.push({ index })
+  return index
 }
 
 // Auto-pick a hanging gate rune (a human who never chose before rolling on).
@@ -60,7 +63,7 @@ function autoResolveGate(s, events) {
   const { color } = s.pendingGate
   let key
   ;[key, s.rng] = rngPick(s.rng, GATE_RUNES)
-  grantRune(s, color, key, false)
+  grantRune(s, color, key)
   s.pendingGate = null
   events.push({ t: 'runePicked', color, key, deferred: true, auto: true })
 }
@@ -154,11 +157,21 @@ function doMove(s, events, pawnId, gateRune) {
   if (gate != null) {
     events.push({ t: 'gate', color, pawnId, index: gate })
     if (gateRune && GATE_RUNES.includes(gateRune)) {
-      grantRune(s, color, gateRune, true)
+      grantRune(s, color, gateRune)
       events.push({ t: 'runePicked', color, key: gateRune, deferred: false })
     } else {
       s.pendingGate = { color, pawnId }
     }
+  }
+
+  // "+1" bonus rune - landing on one grants an extra roll, then it moves on
+  const landIndex = trackIndexOf(pawn)
+  const bi = landIndex == null ? -1 : s.bonusRunes.findIndex((r) => r.index === landIndex)
+  if (bi >= 0) {
+    s.bonusRunes.splice(bi, 1)
+    s.extraRoll = true
+    events.push({ t: 'bonus', color, pawnId, index: landIndex })
+    events.push({ t: 'bonusSpawn', index: respawnBonusRune(s) })
   }
 
   // captures
@@ -240,7 +253,7 @@ function doPickGateRune(s, events, key) {
   if (!s.pendingGate) return fail(s, 'no gate pick pending')
   if (!GATE_RUNES.includes(key)) return fail(s, 'unknown rune')
   const { color } = s.pendingGate
-  grantRune(s, color, key, false)
+  grantRune(s, color, key)
   s.pendingGate = null
   events.push({ t: 'runePicked', color, key, deferred: true })
   return { state: s, events }

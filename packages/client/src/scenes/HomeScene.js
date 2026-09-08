@@ -428,7 +428,7 @@ export class HomeScene extends UIScene {
   openGameSetup(state) {
     const s = state || { opponents: 3, mode: 'cpu', difficulty: store.difficulty }
     const online = s.mode === 'online'
-    const cardH = online ? 300 : 430
+    const cardH = online ? 360 : 430
     const { card } = this.buildModal(t('setup.title'), cardH)
     const T = -cardH / 2
     const reopen = () => this.openGameSetup({ ...s })
@@ -438,25 +438,34 @@ export class HomeScene extends UIScene {
     this.modalChip(card, 0, T + 118, 108, t('setup.local'), s.mode === 'local', () => { s.mode = 'local'; reopen() })
     this.modalChip(card, 118, T + 118, 108, t('setup.online'), online, () => { s.mode = 'online'; reopen() })
 
-    if (!online) {
-      this.modalLabel(card, T + 172, t('setup.opponents'))
-      ;[1, 2, 3].forEach((n, i) => {
-        this.modalChip(card, -96 + i * 96, T + 206, 80, `${n}`, s.opponents === n, () => { s.opponents = n; reopen() })
+    if (online) {
+      this.modalButton(card, 0, T + 186, 300, t('net.create'), true, () => {
+        this.closeModal(); this.goTo('NetLudo', { mode: 'create', maxPlayers: 2 })
       })
-      if (s.mode === 'cpu') {
-        this.modalLabel(card, T + 260, t('setup.difficulty'))
-        ;['easy', 'normal', 'hard'].forEach((d, i) => {
-          this.modalChip(card, -116 + i * 116, T + 294, 108, t(`common.${d}`), s.difficulty === d, () => { s.difficulty = d; reopen() })
-        })
-      }
+      this.modalButton(card, 0, T + 250, 300, t('net.joinCode'), false, () => {
+        const code = window.prompt(t('net.codePrompt'), '')
+        if (!code) return
+        this.closeModal(); this.goTo('NetLudo', { mode: 'code', code })
+      })
+      this.modalButton(card, 0, cardH / 2 - 46, 300, t('net.quick'), false, () => {
+        this.closeModal(); this.goTo('NetLudo', { mode: 'quick', maxPlayers: 4 })
+      })
+      return
+    }
+
+    this.modalLabel(card, T + 172, t('setup.opponents'))
+    ;[1, 2, 3].forEach((n, i) => {
+      this.modalChip(card, -96 + i * 96, T + 206, 80, `${n}`, s.opponents === n, () => { s.opponents = n; reopen() })
+    })
+    if (s.mode === 'cpu') {
+      this.modalLabel(card, T + 260, t('setup.difficulty'))
+      ;['easy', 'normal', 'hard'].forEach((d, i) => {
+        this.modalChip(card, -116 + i * 116, T + 294, 108, t(`common.${d}`), s.difficulty === d, () => { s.difficulty = d; reopen() })
+      })
     }
 
     this.modalButton(card, 0, cardH / 2 - 46, 300, t('setup.start'), true, () => {
       this.closeModal()
-      if (online) {
-        this.goTo('NetLudo', { maxPlayers: 2 })
-        return
-      }
       const order = ['blue', 'green', 'yellow', 'red']
       const players = {}
       order.forEach((c, i) => {

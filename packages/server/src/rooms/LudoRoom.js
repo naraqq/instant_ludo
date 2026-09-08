@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto'
-import { Room, ServerError } from 'colyseus'
+import { Room, ServerError, matchMaker } from 'colyseus'
 import {
   createGame, reduce, publicView, currentColor, legalMoves,
   chooseAiMove, chooseAiPower, bestForcedDice, aiState,
@@ -19,16 +19,41 @@ export class LudoRoom extends Room {
 
   messages = {
     action: (client, message) => this.handleAction(client, message),
+    start: (client) => this.hostStart(client),
   }
 
-  onCreate(options) {
+  async onCreate(options) {
     this.difficulty = options?.difficulty || 'normal'
-    this.maxClients = Math.min(4, Math.max(2, Number(options?.maxPlayers) || 4))
+    this.maxClients = Math.min(4, Math.max(2, Number(options?.maxPlayers) || 2))
+    this.state.maxSeats = this.maxClients
+    this.private = Boolean(options?.private)
     // test hooks - production leaves these at the defaults above / in the engine
     this.botThinkMs = Number(options?.botThinkMs) || BOT_THINK_MS
     this.turnSecondsOverride = Number(options?.turnSeconds) || 0
     this.engine = null
     this.autoDispose = true
+
+    if (this.private) {
+      const code = await this.uniqueCode()
+      this.state.code = code
+      this.setPrivate(true) // keep it out of quick-match / the public listing
+      this.setMetadata({ code })
+    }
+  }
+
+  async uniqueCode() {
+    for (let i = 0; i < 8; i++) {
+      const code = String(randomInt(100000, 1000000))
+      const rooms = await matchMaker.query({ name: 'ludo' })
+      if (!rooms.some((r) => r.metadata?.code === code)) return code
+    }
+    return String(randomInt(100000, 1000000))
+  }
+
+  hostStart(client) {
+    if (this.engine) return
+    if (this.state.hostId && client.sessionId !== this.state.hostId) return
+    this.startMatch()
   }
 
   turnMs() {
@@ -54,14 +79,17 @@ export class LudoRoom extends Room {
     seat.playFabId = auth?.playFabId || ''
     seat.connected = true
     this.state.seats.set(client.sessionId, seat)
+    if (this.private && !this.state.hostId) this.state.hostId = client.sessionId
 
     if (this.engine) return // running game is locked; shouldn't get here
 
     if (this.humanSeats().length >= this.maxClients) {
       this.startMatch()
-    } else if (this.humanSeats().length >= 2 && !this.lobbyTimer) {
+    } else if (!this.private && this.humanSeats().length >= 2 && !this.lobbyTimer) {
+      // quick match: don't wait forever for a 3rd/4th - fill with bots
       this.lobbyTimer = this.clock.setTimeout(() => this.startMatch(), LOBBY_WAIT_MS)
     }
+    // private rooms wait for the room to fill or for the host to press "start"
   }
 
   onDrop(client) {

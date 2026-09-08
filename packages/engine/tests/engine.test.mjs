@@ -125,18 +125,31 @@ test('passing a gate offers a rune - inline or deferred', () => {
   assert.equal(picked.state.pendingGate, null)
 })
 
-test('an air rune deferred at a gate becomes the next-turn bonus roll', () => {
+test('the game seeds four "+1" bonus runes, clear of safe stops and gates', () => {
+  const s = game()
+  assert.equal(s.bonusRunes.length, 4)
+  const idxs = s.bonusRunes.map((r) => r.index)
+  assert.equal(new Set(idxs).size, 4, 'no duplicates')
+  for (const i of idxs) {
+    assert.equal([0, 8, 13, 21, 26, 34, 39, 47].includes(i), false, 'not a safe stop')
+    assert.equal([7, 20, 33, 46].includes(i), false, 'not a gate seam')
+  }
+})
+
+test('landing on a "+1" rune grants an extra roll and the rune moves on', () => {
   let s = game()
-  s.pawns.find((p) => p.color === 'blue' && p.id === 0).steps = 5
-  s = roll(s, 3)
-  s = step(s, { type: 'move', pawnId: 0 }).state // turn -> red, pendingGate blue
-  s = step(s, { type: 'pickGateRune', key: 'air' }).state
-  assert.equal(s.pendingExtra.blue, true)
-  // red plays a nothing turn
-  s = step(s, { type: 'roll', value: 2 }).state
-  assert.equal(currentColor(s), 'blue')
-  const back = step(s, { type: 'roll', value: 2 })
-  assert.equal(back.events.some((e) => e.t === 'extraRoll'), true)
+  const blue = s.pawns.find((p) => p.color === 'blue' && p.id === 0)
+  const runeIdx = s.bonusRunes.find((r) => r.index >= 3 && r.index <= 45).index
+  blue.steps = runeIdx - 2 // blue step == track index for blue (START 0)
+  const before = s.bonusRunes.map((r) => r.index).sort((a, b) => a - b)
+  s = roll(s, 2) // land exactly on the rune
+  const { state, events } = step(s, { type: 'move', pawnId: 0 })
+  assert.equal(events.some((e) => e.t === 'bonus' && e.index === runeIdx), true)
+  assert.equal(events.some((e) => e.t === 'bonusSpawn'), true)
+  assert.equal(state.bonusRunes.length, 4, 'always four on the board')
+  assert.notDeepEqual(state.bonusRunes.map((r) => r.index).sort((a, b) => a - b), before)
+  assert.equal(currentColor(state), 'blue', 'extra roll: still blue')
+  assert.equal(events.find((e) => e.t === 'turn').extra, 'air')
 })
 
 test('pity: three straight non-6s force a 6', () => {

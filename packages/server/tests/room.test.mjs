@@ -106,3 +106,40 @@ test('a winning move ends the match and reports the winner', async () => {
   assert.equal(final.winner, champ)
   a.leave(); b.leave()
 })
+test('a private room gets a 6-digit code and a friend can join it', async () => {
+  const host = await colyseus.sdk.create('ludo', { name: 'Host', private: true, maxPlayers: 2, botThinkMs: 5 })
+  quiet(host)
+  await wait(60)
+  const code = host.state.code
+  assert.match(code, /^\d{6}$/, 'room has a 6-digit code')
+  assert.equal(host.state.hostId, host.sessionId)
+
+  // resolve the code via the HTTP route
+  const res = await colyseus.http.get(`/find/${code}`)
+  assert.equal(res.data.roomId, host.roomId)
+
+  const friend = await colyseus.sdk.joinById(host.roomId, { name: 'Friend' })
+  quiet(friend)
+  await wait(80)
+  // 2/2 -> auto-start
+  assert.equal(host.state.phase, 'playing')
+  assert.equal([...host.state.seats.values()].filter((s) => !s.bot).length, 2)
+  host.leave(); friend.leave()
+})
+
+test('host can start early with bots via the start message', async () => {
+  const host = await colyseus.sdk.create('ludo', { name: 'Solo', private: true, maxPlayers: 2, botThinkMs: 5 })
+  quiet(host)
+  await wait(60)
+  assert.equal(host.state.phase, 'lobby')
+  host.send('start', {})
+  await wait(80)
+  assert.equal(host.state.phase, 'playing')
+  assert.equal([...host.state.seats.values()].filter((s) => s.bot).length, 1)
+  host.leave()
+})
+
+test('an unknown code 404s', async () => {
+  const res = await colyseus.http.get('/find/000000').catch((e) => e)
+  assert.equal(res.statusCode ?? res.status, 404)
+})
