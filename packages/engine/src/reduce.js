@@ -57,7 +57,9 @@ function respawnBonusRune(s) {
   return index
 }
 
-// Auto-pick a hanging gate rune (a human who never chose before rolling on).
+// Settle a hanging gate rune at random. Fired when the owner rolls their next
+// turn without having chosen, or when a fresh gate pass would otherwise clobber
+// someone else's still-pending pick.
 function autoResolveGate(s, events) {
   if (!s.pendingGate) return
   const { color } = s.pendingGate
@@ -87,7 +89,9 @@ function closeTurn(s, events, color, extraReason) {
 function doRoll(s, events, explicitValue) {
   const color = currentColor(s)
 
-  autoResolveGate(s, events)
+  // Only the gate owner rolling again forces their own pick - another player's
+  // roll must never resolve it (that was auto-picking runes out from under them).
+  if (s.pendingGate && s.pendingGate.color === color) autoResolveGate(s, events)
   if (s.pendingExtra[color]) {
     s.pendingExtra[color] = false
     s.extraRoll = true
@@ -160,6 +164,8 @@ function doMove(s, events, pawnId, gateRune) {
       grantRune(s, color, gateRune)
       events.push({ t: 'runePicked', color, key: gateRune, deferred: false })
     } else {
+      // a hanging pick from another colour can't ride across a second gate pass
+      if (s.pendingGate && s.pendingGate.color !== color) autoResolveGate(s, events)
       s.pendingGate = { color, pawnId }
     }
   }

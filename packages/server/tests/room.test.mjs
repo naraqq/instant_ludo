@@ -91,6 +91,42 @@ test('human + bot turns advance the one authoritative game', async () => {
   a.leave()
 })
 
+test('a gate rune can be picked after the turn has moved on, and no one else resolves it', async () => {
+  const room = await colyseus.createRoom('ludo', { maxPlayers: 2, botThinkMs: 999_999, turnSeconds: 999 })
+  const a = await colyseus.connectTo(room, { name: 'A' })
+  const b = await colyseus.connectTo(room, { name: 'B' })
+  quiet(a); quiet(b)
+  room.startMatch()
+  await wait(40)
+
+  // put A's pawn 0 just before its gate, then walk it through
+  const aColor = room.state.seats.get(a.sessionId).color
+  const pawn = room.engine.pawns.find((p) => p.color === aColor && p.id === 0)
+  pawn.steps = 5
+  a.send('action', { type: 'roll', value: 3 })
+  await wait(60)
+  a.send('action', { type: 'move', pawnId: 0 })
+  await wait(80)
+
+  assert.deepEqual(room.engine.pendingGate, { color: aColor, pawnId: 0 })
+  assert.notEqual(currentColor(room.engine), aColor, 'turn has passed to B')
+
+  // B rolls a 6 and keeps the turn - B's roll must not touch A's hanging pick
+  b.send('action', { type: 'roll', value: 6 })
+  await wait(60)
+  assert.equal(currentColor(room.engine), room.state.seats.get(b.sessionId).color)
+  assert.equal(room.engine.phase, 'move')
+  assert.deepEqual(room.engine.pendingGate, { color: aColor, pawnId: 0 })
+  assert.equal(room.engine.inventory[aColor].water, 0)
+
+  // A picks it out of band while it is firmly B's turn
+  a.send('action', { type: 'pickGateRune', key: 'water' })
+  await wait(60)
+  assert.equal(room.engine.pendingGate, null)
+  assert.equal(room.engine.inventory[aColor].water, 1)
+  a.leave(); b.leave()
+})
+
 test('a winning move ends the match and reports the winner', async () => {
   const room = await colyseus.createRoom('ludo', { maxPlayers: 2, botThinkMs: 999_999, turnSeconds: 999 })
   const a = await colyseus.connectTo(room, { name: 'Champ' })

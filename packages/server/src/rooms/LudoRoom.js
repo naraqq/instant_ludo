@@ -178,7 +178,21 @@ export class LudoRoom extends Room {
   handleAction(client, action) {
     if (!this.engine || this.engine.phase === 'gameover') return
     const seat = this.state.seats.get(client.sessionId)
-    if (!seat || seat.color !== currentColor(this.engine)) {
+    if (!seat) return
+
+    // A gate rune pick belongs to whoever passed the gate and is resolved out of
+    // band - the turn may already have moved on while their picker floats.
+    if (action?.type === 'pickGateRune') {
+      if (this.engine.pendingGate?.color !== seat.color) {
+        client.send('rejected', { error: 'no gate pick pending' })
+        return
+      }
+      const out = this.applyAction(action)
+      if (out?.error) client.send('rejected', { error: out.error })
+      return
+    }
+
+    if (seat.color !== currentColor(this.engine)) {
       client.send('rejected', { error: 'not your turn' })
       return
     }
