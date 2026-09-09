@@ -555,11 +555,17 @@ export class NetLudoScene extends UIScene {
     this.updatePawnHighlights()
     this._pendingCue = null
     for (const ev of events) {
-      // eslint-disable-next-line no-await-in-loop
       if (this._disposed || run !== this._run) return
-      await this.playEvent(ev)
+      // hard cap per event so a stuck tween / promise can never freeze playback
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.race([
+        Promise.resolve(this.playEvent(ev)),
+        new Promise((r) => this.time.delayedCall(this._behind ? 400 : 3500, r)),
+      ])
     }
     if (this._disposed || run !== this._run) return
+    if (this._windup) { this._windup.stop?.(); this._windup = null } // no matching 'rolled'
+    this._snapRoll = false
     this._predicted = null
     this._moveAnimDone = null
     this._animating = false

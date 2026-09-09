@@ -54,7 +54,7 @@ export const DiceMixin = {
         this.diceValue = 0
         this.flashSixForfeit(color)
         this.refreshTurnUI()
-        this.time.delayedCall(prefersReducedMotion ? 300 : 1050, () => this.nextTurn())
+        this.time.delayedCall(prefersReducedMotion ? 300 : 850, () => this.nextTurn())
         return
       }
 
@@ -65,13 +65,13 @@ export const DiceMixin = {
       this.onRollResolved = null
       const moves = this.getMovesForCurrentPlayer()
       if (moves.length === 0) {
-        this.time.delayedCall(750, () => this.nextTurn())
+        this.time.delayedCall(prefersReducedMotion ? 250 : 560, () => this.nextTurn())
       } else if (this.isBot(color)) {
-        this.time.delayedCall(480, () => resolved && resolved())
+        this.time.delayedCall(320, () => resolved && resolved())
       } else if (moves.length === 1) {
         // Only one legal move - play it for the human after a beat so they
         // still see what they rolled.
-        this.time.delayedCall(prefersReducedMotion ? 120 : 460, () => {
+        this.time.delayedCall(prefersReducedMotion ? 100 : 320, () => {
           const only = this.getMovesForCurrentPlayer()
           if (only.length === 1 && this.phase === 'move' && !this.gameOver) {
             this.tryMovePawn(only[0])

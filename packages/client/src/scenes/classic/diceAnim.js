@@ -135,7 +135,7 @@ export const DiceAnimMixin = {
       this.tweens.add({
         targets: progress,
         t: 1,
-        duration: prefersReducedMotion ? 100 : 650,
+        duration: prefersReducedMotion ? 90 : 430,
         ease: 'Linear',
         onUpdate: () => {
           const t = progress.t
