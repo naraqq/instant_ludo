@@ -4,7 +4,6 @@ import { HomeScene } from './scenes/HomeScene.js'
 import { ClassicScene } from './scenes/ClassicScene.js'
 import { NetLudoScene } from './scenes/NetLudoScene.js'
 import { sfx } from './audio.js'
-import { W, H } from './config.js'
 import { session } from './net/playfab.js' // kicks off anonymous device login on load
 
 const game = new Phaser.Game({
@@ -16,8 +15,8 @@ const game = new Phaser.Game({
     // top-align: a tall phone should letterbox BELOW the action bar, never push
     // the board down behind the browser's top chrome
     autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
-    width: W,
-    height: H,
+    width: 720,
+    height: 1280,
   },
   scene: [HomeScene, ClassicScene, NetLudoScene],
 })
