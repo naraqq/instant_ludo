@@ -8,14 +8,13 @@ import { SIX_PITY_LIMIT } from './constants.js'
 export const DiceMixin = {
   rollDice() {
     if (this.phase !== 'roll' || this.gameOver) return
-    // Rolling means the player is done deliberating - snap any open gate pick of
-    // theirs shut (at random) and fold in an air rune they banked a moment ago.
+    // A gate rune must be chosen before rolling on - nudge the picker, don't roll.
+    if (this._gatePickChoose && this._gatePickOwner === this.currentColor && !this.isBot(this.currentColor)) {
+      this.bumpGatePicker()
+      return
+    }
     if (this._gatePickOwner === this.currentColor) {
-      this.autoResolveGatePick()
-      if (this.pendingExtraRoll.has(this.currentColor)) {
-        this.pendingExtraRoll.delete(this.currentColor)
-        this.extraRollNextTurn = true
-      }
+      this.autoResolveGatePick() // bot / clock fallback only
     }
     this.clearExtraRollCue(this.currentColor)
     this.phase = 'rolling'

@@ -113,9 +113,11 @@ export class ClassicScene extends UIScene {
     this.homeMarks = []
     this.gatePicker = null
     this.gatePickerTimeout = null
-    this._gatePass = false
+    this._gatePass = null
     this._gatePickOwner = null
     this._gatePickChoose = null
+    this._gatePickerPanel = null
+    this._gatePickerDim = null
     this.pendingExtraRoll = new Set()
     this.activePawnZones.forEach((zone) => zone.destroy())
     this.activePawnZones = []

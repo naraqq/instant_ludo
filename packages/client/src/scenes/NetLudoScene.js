@@ -14,7 +14,7 @@ import { PawnsMixin } from './classic/pawns.js'
 import { PowersMixin } from './classic/powers.js'
 import { CombatMixin } from './classic/combat.js'
 import { DiceAnimMixin } from './classic/diceAnim.js'
-import { TURN_SECONDS, POD } from './classic/constants.js'
+import { TURN_SECONDS, MOVE_SECONDS, POD } from './classic/constants.js'
 import { joinMatch, soloMatch, createRoom, joinByCode, tryReconnect, clearReconnect } from '../net/room.js'
 
 export class NetLudoScene extends UIScene {
@@ -304,20 +304,20 @@ export class NetLudoScene extends UIScene {
   }
 
   // countdown ring on the active pod, from the server's deadline
+  serverNow() { return this.room?.clock?.serverNow?.() ?? this.room?.clock?.currentTime ?? 0 }
+
   armTurnTimer() {
     this._turnTimer?.remove(false)
     const deadline = this.room?.state?.turnDeadline || 0
-    const now = this.room?.clock?.currentTime ?? 0
-    if (this.gameOver || this._animating || !deadline || deadline <= now) { this.drawTimerArc(0); return }
-    const total = TURN_SECONDS * 1000
-    this._turnTimer = this.time.addEvent({
-      delay: 200, loop: true,
-      callback: () => {
-        const left = (this.room?.state?.turnDeadline || 0) - (this.room?.clock?.currentTime ?? 0)
-        this.drawTimerArc(Math.max(0, Math.min(1, left / total)))
-        if (left <= 0) this._turnTimer?.remove(false)
-      },
-    })
+    const total = (this.g?.phase === 'move' ? MOVE_SECONDS : TURN_SECONDS) * 1000
+    if (this.gameOver || this._animating || !deadline || deadline <= this.serverNow()) { this.drawTimerArc(0); return }
+    const tick = () => {
+      const left = (this.room?.state?.turnDeadline || 0) - this.serverNow()
+      this.drawTimerArc(Math.max(0, Math.min(1, left / total)))
+      if (left <= 0) this._turnTimer?.remove(false)
+    }
+    tick()
+    this._turnTimer = this.time.addEvent({ delay: 120, loop: true, callback: tick })
   }
 
   // ----------------------------------------------------------------- input
@@ -331,8 +331,8 @@ export class NetLudoScene extends UIScene {
   rollDice() {
     if (this.phase !== 'roll') return
     if (this.currentColor !== this.myColor || this._animating) return
-    // a still-open gate pick resolves server-side when we roll
-    if (this._gatePickChoose) this.closeGatePicker()
+    // you must choose the gate rune before rolling on - nudge the picker
+    if (this._gatePickChoose) { this.bumpGatePicker?.(); return }
     sfx.tap()
     const forced = this.forcedDiceValue
     this.forcedDiceValue = null
@@ -346,6 +346,7 @@ export class NetLudoScene extends UIScene {
 
   usePower(key) {
     if (this.phase !== 'roll' || this.currentColor !== this.myColor || this._animating) return
+    if (this._gatePickChoose) { this.bumpGatePicker?.(); return }
     if (!this.g.inventory[this.myColor]?.[key]) { this.flashPower(key); return }
     if (key === 'water') { this.showControllerPicker(); return }
     sfx.power()
@@ -381,27 +382,21 @@ export class NetLudoScene extends UIScene {
       if (pawn.finished) return // retired from the board - see parkFinishedPawn
       const view = this.pawnViews.get(pawn)
       if (!view) return
+      const token = view.getByName('token')
       const glow = view.getByName('glow')
       const active = this.phase === 'move' && !this._animating
         && this.currentColor === this.myColor && pawn.color === this.myColor && this.canMove(pawn)
       view.setAlpha(active ? 1 : 0.92)
-      this.tweens.killTweensOf(view)
-      const stackScale = view.getData('stackScale') ?? 1
-      // killing the tween above can catch reflowPawns' stack-in slide mid-flight
-      // (this runs right after it via refreshTurnUI) - land the pawn on its final
-      // stacked spot so pawns sharing a tile don't end up piled on one point
-      if (!this._animating) {
-        const off = view.getData('stackOffset') || { x: 0, y: 0 }
-        const base = this.getPawnPixel(pawn)
-        view.setPosition(base.x + off.x, base.y + off.y)
-      }
+      // the pulse rides the token (a child), so it never fights reflowPawns'
+      // animated stack-in slide on the view itself
+      this.tweens.killTweensOf(token)
+      token.setScale(1)
       if (active) {
         glow?.setFillStyle(COLOR_HEX[pawn.color], 0.28)
-        this.tweens.add({ targets: view, scale: stackScale * 1.14, duration: 320, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+        this.tweens.add({ targets: token, scale: 1.13, duration: 320, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
         this.createActivePawnZone(pawn, view)
       } else {
         glow?.setFillStyle(0xffffff, 0)
-        view.setScale(stackScale)
       }
     })
   }
@@ -514,11 +509,12 @@ export class NetLudoScene extends UIScene {
   }
 
   playGate(ev) {
+    this.flashGate?.(ev.index)
     if (ev.color === this.myColor && !this._gatePickChoose) {
       this._gatePickOwner = this.myColor
       this.showGatePicker(this.myColor, (key) => this.room.send('action', { type: 'pickGateRune', key }))
     }
-    return this.pause(120)
+    return this.pause(220)
   }
 
   playRunePicked(ev) {

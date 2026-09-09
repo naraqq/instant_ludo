@@ -296,25 +296,22 @@ export const PawnsMixin = {
       if (pawn.finished) return // retired from the board - see parkFinishedPawn
       const view = this.pawnViews.get(pawn)
       if (!view) return
+      const token = view.getByName('token')
       const glow = view.getByName('glow')
       const active = this.phase === 'move' && !this.isBot(pawn.color) && pawn.color === this.currentColor && this.canMove(pawn)
       view.setAlpha(active ? 1 : 0.92)
-      this.tweens.killTweensOf(view)
+      // pulse the token (a child) so it never fights reflowPawns' slide on the view
+      this.tweens.killTweensOf(token)
+      token.setScale(1)
       if (active) {
         glow?.setFillStyle(COLOR_HEX[pawn.color], 0.28)
-        const stackScale = view.getData('stackScale') ?? 1
         this.tweens.add({
-          targets: view,
-          scale: stackScale * 1.14,
-          duration: 320,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Sine.easeInOut',
+          targets: token, scale: 1.13,
+          duration: 320, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
         })
         this.createActivePawnZone(pawn, view)
       } else {
         glow?.setFillStyle(0xffffff, 0)
-        view.setScale(view.getData('stackScale') ?? 1)
       }
     })
   },

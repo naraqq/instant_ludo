@@ -232,7 +232,9 @@ export class LudoRoom extends Room {
     const ms = auto ? this.botThinkMs : this.turnMs()
 
     this.state.currentColor = color
-    this.state.turnDeadline = this.clock.currentTime + ms
+    // room-elapsed ms (matches the client SDK's room.clock.serverNow()), not the
+    // epoch clock.currentTime
+    this.state.turnDeadline = this.clock.elapsedTime + ms
     this.turnTimer = this.clock.setTimeout(() => this.autoPlay(color), ms)
   }
 

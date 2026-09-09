@@ -421,11 +421,50 @@ export const PowersMixin = {
   // it whenever the pawn's path steps onto that square or beyond (having started
   // before it). Landing exactly on the square counts - that means walking
   // through the arch. Gates are 13 apart, so a move crosses at most one.
+  // Returns the crossed gate's track index, or null.
   moveCrossesGate(color, from, to) {
     for (let step = Math.max(from + 1, 0); step <= to && step < 51; step++) {
-      if (GATE_INDEXES.includes((START_INDEX[color] + step) % TRACK.length)) return true
+      const idx = (START_INDEX[color] + step) % TRACK.length
+      if (GATE_INDEXES.includes(idx)) return idx
     }
-    return false
+    return null
+  },
+
+  // A bright pulse across a gate arch as a pawn walks through it.
+  flashGate(index) {
+    const i = this.gates?.findIndex((g) => g.index === index)
+    if (i == null || i < 0) return
+    const c = this.gateViews[i]
+    if (!c) return
+    const bar = c.list?.[0]
+    const { x, y } = c
+    const tint = { fire: 0xff5c28, water: 0x4dc9ff, earth: 0x8fd86a, air: 0xffd54d }[this.gates[i].element] ?? 0xffffff
+    sfx.rune?.()
+    if (bar && !prefersReducedMotion) {
+      this.tweens.killTweensOf(bar)
+      this.tweens.add({
+        targets: bar, scale: { from: 0.24, to: 0.17 }, alpha: { from: 1, to: 0.95 },
+        duration: dur(420), ease: EASE.out,
+        onComplete: () => {
+          bar.setScale(0.17).setAlpha(0.95)
+          this.tweens.add({ targets: bar, alpha: { from: 0.8, to: 1 }, duration: 1000, yoyo: true, repeat: -1, ease: EASE.breathe })
+        },
+      })
+    }
+    for (let k = 0; k < 2; k++) {
+      const ring = this.add.circle(x, y, 6, tint, 0).setStrokeStyle(4 - k, tint, 0.9).setDepth(19)
+      this.tweens.add({
+        targets: ring, radius: 30 + k * 12, alpha: 0,
+        duration: dur(380), delay: dur(k * 80), ease: EASE.out,
+        onComplete: () => ring.destroy(),
+      })
+    }
+    if (this.textures.exists('classic-spark')) {
+      this.add.particles(x, y, 'classic-spark', {
+        speed: { min: 40, max: 150 }, angle: { min: 0, max: 360 },
+        scale: { start: 0.7, end: 0 }, lifespan: 420, quantity: 10, emitting: false, tint: [tint, 0xffffff],
+      }).setDepth(20).explode(10, x, y)
+    }
   },
 
   // Called from the move driver once the pawn settles. If the move passed a
@@ -433,10 +472,11 @@ export const PowersMixin = {
   // pick at once; a human gets a picker that floats over the ongoing game and
   // is resolved whenever they choose (or auto-resolved when their turn returns).
   resolveGatePass(pawn) {
-    if (!this._gatePass) return
-    this._gatePass = false
+    if (this._gatePass == null) return
+    const gateIdx = this._gatePass
+    this._gatePass = null
     const color = pawn.color
-    sfx.rune()
+    this.flashGate(gateIdx)
     const view = this.pawnViews.get(pawn)
     const at = { x: view?.x ?? W / 2, y: view?.y ?? H / 2 }
     const grant = (key) => {
@@ -519,14 +559,16 @@ export const PowersMixin = {
     const panelY = H / 2
 
     const overlay = this.add.container(0, 0).setDepth(120)
-    // A light scrim, not a black-out, and deliberately NOT interactive: the game
-    // plays on behind the panel and the player can roll their next turn whenever
-    // - doing so just auto-resolves the pick. Only the panel body swallows taps.
-    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.26)
+    // A scrim over the board: the pick is mandatory, so tapping anywhere but a
+    // rune tile just nudges the picker (it doesn't auto-resolve or dismiss).
+    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.44).setInteractive()
+    dim.on('pointerup', () => this.bumpGatePicker())
     overlay.add(dim)
+    this._gatePickerDim = dim
 
     const panel = this.add.container(W / 2, panelY)
     overlay.add(panel)
+    this._gatePickerPanel = panel
     this.makeRoundedRectTexture('gate-panel', panelW, panelH, 0x352a72, 0x1a1145, 28, 0x9b8ae6)
     panel.add(this.add.image(0, 0, 'gate-panel').setAlpha(0.99))
     panel.add(this.add.text(0, -panelH / 2 + 34, t('classic.gateTitle'), {
@@ -545,6 +587,8 @@ export const PowersMixin = {
       this.gatePicker = null
       this._gatePickOwner = null
       this._gatePickChoose = null
+      this._gatePickerPanel = null
+      this._gatePickerDim = null
       this.gatePickerTimeout?.remove(false)
       this.gatePickerTimeout = null
       sfx.power()
@@ -592,7 +636,7 @@ export const PowersMixin = {
 
     if (!prefersReducedMotion) {
       dim.setAlpha(0)
-      this.tweens.add({ targets: dim, alpha: 0.26, duration: dur(DUR.fast) })
+      this.tweens.add({ targets: dim, alpha: 0.44, duration: dur(DUR.fast) })
       panel.setScale(0.84)
       this.tweens.add({ targets: panel, scale: 1, duration: dur(DUR.base), ease: EASE.pop })
       tiles.forEach((slot, i) => {
@@ -605,8 +649,26 @@ export const PowersMixin = {
     }
   },
 
-  // The player started their next turn (tapped the dice) with the picker still
-  // open - make the choice for them at random so nothing is left dangling.
+  // Tried to roll / act with the pick still open - shake the picker so it's
+  // clear a rune must be chosen first. Never auto-resolves.
+  bumpGatePicker() {
+    sfx.tap?.()
+    const panel = this._gatePickerPanel
+    const dim = this._gatePickerDim
+    if (panel && !prefersReducedMotion) {
+      this.tweens.killTweensOf(panel)
+      this.tweens.add({ targets: panel, scale: { from: 1.09, to: 1 }, duration: dur(300), ease: EASE.pop })
+      this.tweens.add({ targets: panel, angle: { from: -2, to: 0 }, duration: dur(260), ease: 'Sine.easeOut' })
+    }
+    if (dim && !prefersReducedMotion) {
+      this.tweens.killTweensOf(dim)
+      dim.setAlpha(0.62)
+      this.tweens.add({ targets: dim, alpha: 0.44, duration: dur(240) })
+    }
+  },
+
+  // Last-resort: choose at random. Only for the turn-clock / bot fallback, never
+  // a player action.
   autoResolveGatePick() {
     if (this._gatePickChoose) {
       this._gatePickChoose(Phaser.Utils.Array.GetRandom(GATE_RUNES))
@@ -618,6 +680,8 @@ export const PowersMixin = {
     this.gatePickerTimeout = null
     this._gatePickOwner = null
     this._gatePickChoose = null
+    this._gatePickerPanel = null
+    this._gatePickerDim = null
     this.gatePicker?.destroy()
     this.gatePicker = null
   },

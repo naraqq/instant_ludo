@@ -200,6 +200,8 @@ export const TurnMixin = {
     if (this.gameOver) return
     this.showToast(t('classic.timeUp'))
     if (this.phase === 'roll') {
+      // clock ran out with the gate picker still open - settle it at random
+      if (this._gatePickChoose && this._gatePickOwner === this.currentColor) this.autoResolveGatePick()
       this.rollDice()
     } else if (this.phase === 'move') {
       const moves = this.getMovesForCurrentPlayer()
