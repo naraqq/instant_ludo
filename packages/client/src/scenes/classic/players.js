@@ -164,17 +164,15 @@ export const PlayersMixin = {
       if (!on) badge.getByName('arc')?.clear()
     })
 
-    // the active player's whole home base glows with a bright pulsing frame, so
-    // whose turn it is reads at a glance
-    Object.entries(this.quadFx).forEach(([key, rect]) => {
-      this.tweens.killTweensOf(rect)
-      if (key !== color) { rect.setAlpha(0); return }
-      rect.setFillStyle(COLOR_LIGHT[key], 0.32).setStrokeStyle(7, COLOR_LIGHT[key], 0.95)
-      if (prefersReducedMotion) { rect.setAlpha(1); return }
-      rect.setAlpha(0.5)
+    // the active player's whole home base glows with a rounded pulsing frame
+    Object.entries(this.quadFx).forEach(([key, g]) => {
+      this.tweens.killTweensOf(g)
+      if (key !== color) { g.setAlpha(0); return }
+      if (prefersReducedMotion) { g.setAlpha(0.9); return }
+      g.setAlpha(0.45)
       this.tweens.add({
-        targets: rect, alpha: 1,
-        duration: 540, yoyo: true, repeat: -1, ease: EASE.breathe,
+        targets: g, alpha: 1,
+        duration: 560, yoyo: true, repeat: -1, ease: EASE.breathe,
       })
     })
 

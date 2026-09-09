@@ -168,7 +168,7 @@ export function buildBoardCanvas() {
     const owner = START_OWNER[i]
     const safe = SAFE_STOPS.has(i)
     if (owner) {
-      drawTile(gx, gy, hx(COLOR_HEX[owner]), { stroke: 'rgba(255,255,255,0.55)' })
+      drawTile(gx, gy, hx(COLOR_HEX[owner]), { stroke: 'rgba(255,255,255,0.35)' })
     } else if (safe) {
       drawTile(gx, gy, hx(BOARD_PALETTE.safe))
       // soft pad + crisp star
@@ -186,23 +186,23 @@ export function buildBoardCanvas() {
     }
   })
 
-  // home lanes: colour gradient + chevron toward centre
+  // home lanes: plain colour tiles, a faint chevron toward the centre
   for (const color of COLORS) {
     const [dx, dy] = HOME_DIR[color]
     HOME_LANES[color].forEach(([gx, gy]) => {
-      drawTile(gx, gy, hx(COLOR_HEX[color]), { stroke: hx(COLOR_DARK[color]) })
+      drawTile(gx, gy, hx(COLOR_HEX[color]))
       const cx2 = (gx + 0.5) * cell
       const cy2 = (gy + 0.5) * cell
       ctx.save()
       ctx.translate(cx2, cy2)
       ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2)
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)'
-      ctx.lineWidth = 4 * S
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'
+      ctx.lineWidth = 2.5 * S
       ctx.lineCap = 'round'
       ctx.beginPath()
-      ctx.moveTo(-7 * S, 4 * S)
-      ctx.lineTo(0, -5 * S)
-      ctx.lineTo(7 * S, 4 * S)
+      ctx.moveTo(-6 * S, 3.5 * S)
+      ctx.lineTo(0, -4 * S)
+      ctx.lineTo(6 * S, 3.5 * S)
       ctx.stroke()
       ctx.restore()
     })

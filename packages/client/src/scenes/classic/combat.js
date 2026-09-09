@@ -104,8 +104,8 @@ export const CombatMixin = {
     this.popAt(at.x, at.y, 0xffffff)
 
     victimView.setDepth(56)
-    const vbase = victimView.getByName?.('base')
-    vbase?.setVisible(false)
+    const vshadow = victimView.getByName?.('shadow')
+    vshadow?.setVisible(false)
     const vBase = victimView.getData('stackScale') ?? 1
     const kb = { x: at.x + nx * 54, y: at.y + ny * 54 - 36 }
     const mid = {
@@ -116,7 +116,7 @@ export const CombatMixin = {
       targets: victimView,
       onComplete: () => {
         victimView.setAngle(0).setScale(vBase).setDepth(20)
-        vbase?.setVisible(true)
+        vshadow?.setVisible(false) // back in the yard - no track shadow
         this.popAt(home.x, home.y, COLOR_HEX[victimColor])
         onDone?.()
       },
