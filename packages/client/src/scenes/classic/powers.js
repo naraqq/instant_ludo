@@ -23,7 +23,7 @@ export const POWER_META = {
 const hxp = (n) => '#' + ((n >>> 0) & 0xffffff).toString(16).padStart(6, '0')
 
 // A rune-coin icon per power, painted once so the three read as one set.
-function powerRuneTexture(scene, key) {
+export function powerRuneTexture(scene, key) {
   const id = `power-rune-${key}`
   if (scene.textures.exists(id)) return id
   const S = 2

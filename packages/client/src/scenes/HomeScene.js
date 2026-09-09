@@ -5,8 +5,10 @@ import { DUR, EASE, dur, prefersReducedMotion } from '../ui/tokens.js'
 import { store, xpForLevel } from '../store.js'
 import { session, onSession, setDisplayName } from '../net/playfab.js'
 import { sfx } from '../audio.js'
-import { COLOR_HEX, COLOR_DARK, COLOR_SURFACE, BOARD_PALETTE, TRACK, HOME_LANES, YARDS, SAFE_STOPS, START_INDEX } from '@ludo/engine'
+import { COLOR_HEX, COLOR_DARK } from '@ludo/engine'
 import { drawRestingDice } from '../ui/dice3d.js'
+import { buildBoardCanvas } from './classic/boardArt.js'
+import { powerRuneTexture, POWER_META } from './classic/powers.js'
 import { t, getLocale, setLocale, LOCALES, LOCALE_LABEL } from '../i18n.js'
 
 const FREE_COINS_AMOUNT = 5000
@@ -24,6 +26,7 @@ export class HomeScene extends UIScene {
 
   preload() {
     this.makeBackgroundTexture('bg-home', '#0b1526', '#17233d')
+    this.load.image('rune-bonus', 'assets/sprites/rune-bonus.png')
     ELEMENTS.forEach(({ key }) => {
       this.load.image(`hero-${key}`, `assets/sprites/pawn-${key}.png`)
       this.load.image(`hero-${key}-sm`, `assets/sprites/pawn-${key}-sm.png`)
@@ -152,34 +155,11 @@ export class HomeScene extends UIScene {
       fontFamily: 'Verdana, sans-serif', fontSize: 16, color: '#c0bbd5',
     }).setOrigin(.5))
 
-    // Miniature of the actual board, using the same paths and palette.
-    const board = this.add.graphics().setPosition(W / 2, 450).setScale(1.65, .72).setAngle(-10).setDepth(2)
-    const cell = 16
-    board.fillStyle(0x080c22, .5).fillRoundedRect(-134, -119, 268, 268, 18)
-    board.fillStyle(0xe4e9f4, 1).fillRoundedRect(-132, -132, 264, 264, 18)
-    board.fillStyle(BOARD_PALETTE.track, 1).fillRect(-120, -120, 240, 240)
-    Object.entries(YARDS).forEach(([color, yard]) => {
-      const [x, y] = yard.box.map(n => n * cell - 120)
-      board.fillStyle(COLOR_HEX[color], 1).fillRect(x, y, cell * 6, cell * 6)
-      board.fillStyle(COLOR_SURFACE[color], 1).fillRoundedRect(x + 16, y + 16, 64, 64, 7)
-      for (const dx of [32, 64]) for (const dy of [32, 64]) {
-        board.fillStyle(COLOR_HEX[color], .22).fillCircle(x + dx, y + dy, 7)
-      }
-    })
-    const owners = Object.fromEntries(Object.entries(START_INDEX).map(([c, index]) => [index, c]))
-    TRACK.forEach(([x, y], index) => {
-      board.fillStyle(owners[index] ? COLOR_HEX[owners[index]] : SAFE_STOPS.has(index) ? BOARD_PALETTE.safe : BOARD_PALETTE.track)
-      board.fillRect(x * cell - 120, y * cell - 120, cell, cell)
-      board.lineStyle(.7, BOARD_PALETTE.grid, .55).strokeRect(x * cell - 120, y * cell - 120, cell, cell)
-    })
-    Object.entries(HOME_LANES).forEach(([color, cells]) => cells.forEach(([x, y]) => {
-      board.fillStyle(COLOR_HEX[color]).fillRect(x * cell - 120, y * cell - 120, cell, cell)
-      board.lineStyle(.7, COLOR_DARK[color], .4).strokeRect(x * cell - 120, y * cell - 120, cell, cell)
-    }))
-    board.fillStyle(COLOR_HEX.red).fillTriangle(-24, -24, 0, 0, -24, 24)
-    board.fillStyle(COLOR_HEX.green).fillTriangle(-24, -24, 24, -24, 0, 0)
-    board.fillStyle(COLOR_HEX.yellow).fillTriangle(24, -24, 24, 24, 0, 0)
-    board.fillStyle(COLOR_HEX.blue).fillTriangle(-24, 24, 24, 24, 0, 0)
+    // Miniature of the real board, tilted like a card the mascots stand on.
+    if (!this.textures.exists('board-v2')) this.textures.addCanvas('board-v2', buildBoardCanvas())
+    this.add.image(W / 2 + 8, 470, 'board-v2').setDisplaySize(280, 280).setAngle(-8)
+      .setTint(0x000000).setAlpha(0.4).setDepth(1)
+    this.add.image(W / 2, 458, 'board-v2').setDisplaySize(280, 280).setAngle(-8).setDepth(2)
 
     this.heroChars = []
     const poses = [[170, 478, .48], [298, 510, .64], [438, 497, .56], [556, 467, .45]]
@@ -309,16 +289,25 @@ export class HomeScene extends UIScene {
     this.legend.add(this.add.text(-324, 0, t('home.powersTitle'), {
       fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#a9a0c0', fontStyle: 'bold',
     }))
-    const powers = ['home.powerFire', 'home.powerWater', 'home.powerEarth', 'home.powerAir']
-    ELEMENTS.forEach(({ key, color }, i) => {
+    const items = [
+      { key: 'fire', tex: powerRuneTexture(this, 'fire'), name: POWER_META.fire.name, blurb: POWER_META.fire.blurb },
+      { key: 'water', tex: powerRuneTexture(this, 'water'), name: POWER_META.water.name, blurb: POWER_META.water.blurb },
+      { key: 'earth', tex: powerRuneTexture(this, 'earth'), name: POWER_META.earth.name, blurb: POWER_META.earth.blurb },
+      { key: 'air', tex: 'rune-bonus', name: 'EXTRA ROLL', blurb: t('home.powerAir') },
+    ]
+    items.forEach(({ tex, name, blurb }, i) => {
       const x = -246 + i * 164
       const panel = this.add.graphics()
-      panel.fillStyle(color, .08).fillRoundedRect(x - 77, 33, 154, 133, 18)
+      panel.fillStyle(0x1a2b40, .55).fillRoundedRect(x - 77, 26, 154, 150, 18)
+      panel.lineStyle(1, 0x33506e, .5).strokeRoundedRect(x - 77, 26, 154, 150, 18)
       this.legend.add(panel)
-      this.legend.add(this.add.image(x, 80, `rune-${key}`).setScale(62 / 240))
-      this.legend.add(this.add.text(x, 128, t(powers[i]), {
-        fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#d4cfe3', align: 'center',
-        wordWrap: { width: 132 },
+      this.legend.add(this.add.image(x, 72, tex).setDisplaySize(52, 52))
+      this.legend.add(this.add.text(x, 110, name, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(.5))
+      this.legend.add(this.add.text(x, 142, blurb, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 10, color: '#a9c0d6', align: 'center',
+        wordWrap: { width: 138 },
       }).setOrigin(.5))
     })
   }

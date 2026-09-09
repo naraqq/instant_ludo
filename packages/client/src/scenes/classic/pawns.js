@@ -128,6 +128,10 @@ export const PawnsMixin = {
     ;[view, token, sprite].forEach(target => this.tweens.killTweensOf(target))
     token.setPosition(0, 0).setAngle(0).setScale(1)
     sprite.setScale(fitSprite(sprite, TRACK_H))
+    // the base disc stays behind - it shouldn't slide along the ground with the
+    // pawn during a hop
+    const baseEl = view.getByName('base')
+    baseEl?.setVisible(false)
 
     const points = [{ x: view.x, y: view.y }]
     if (from === -1) points.push(this.getPixelFor(pawn.color, 0))
@@ -145,6 +149,7 @@ export const PawnsMixin = {
       motion?.stop?.()
       this.tweens.killTweensOf(token)
       token.setPosition(0, 0).setAngle(0).setScale(1)
+      baseEl?.setVisible(true)
       pawn._cancelMotion = null
       onComplete?.()
     }
@@ -152,6 +157,7 @@ export const PawnsMixin = {
       pawn._cancelMotion = null
       view.setPosition(dest.x, dest.y).setScale(1).setDepth(restingDepth)
       token.setPosition(0, 0).setAngle(0).setScale(1)
+      baseEl?.setVisible(true)
       onComplete?.()
     }
     if (!count || prefersReducedMotion) {
