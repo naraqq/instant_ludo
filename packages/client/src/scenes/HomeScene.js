@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { W, H, CONTENT_W } from '../config.js'
+import { W, H, HOME_V, CONTENT_W } from '../config.js'
 import { UIScene } from '../ui/UIScene.js'
 import { DUR, EASE, dur, prefersReducedMotion } from '../ui/tokens.js'
 import { store, xpForLevel } from '../store.js'
@@ -34,7 +34,7 @@ export class HomeScene extends UIScene {
   create() {
     this._leaving = false
     this.homeLocale = getLocale()
-    this.add.image(W / 2, H / 2, 'bg-home')
+    const bg = this.add.image(W / 2, H / 2, 'bg-home')
     this.createBackdrop()
     this.createTopPanel()
     this.createHero()
@@ -43,6 +43,15 @@ export class HomeScene extends UIScene {
     this.createDailyStrip()
     this.createPowerLegend()
     this.createFooter()
+
+    // Content is laid out for a 1280 canvas; drop it (all but the full-bleed
+    // background) into one container and re-centre on the taller canvas. Modals,
+    // added later, stay at the true centre.
+    if (HOME_V) {
+      const root = this.add.container(0, HOME_V)
+      root.add(this.children.list.filter((o) => o !== root && o !== bg))
+      root.sort('depth')
+    }
 
     this.modalParts = null
     this.input.keyboard?.on('keydown-ESC', this.closeModal, this)

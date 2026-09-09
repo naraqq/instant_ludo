@@ -8,25 +8,31 @@ import { START_INDEX } from '@ludo/engine'
 // modules that still import them from this file.
 export { SIX_PITY_LIMIT, TURN_SECONDS, MOVE_SECONDS } from '@ludo/engine'
 
-// Board fills the screen width (15 tiles = 720px), leaving generous top and
-// bottom strips for the (bigger) player profiles.
+// The board spans the full width (15 tiles = 720px) and sits centred; the strips
+// above and below scale with the (viewport-matched) canvas height and carry the
+// player profiles + action bar.
 export const TILE = 48
 export const BOARD_SIZE = TILE * 15
 export const BOARD_X = 0
-export const BOARD_Y = (H - BOARD_SIZE) / 2 // board centred vertically
+// centred, but biased up a touch so the top HUD strip stays compact and the
+// busier bottom control strip gets the extra room
+export const BOARD_Y = Math.max(206, Math.round((H - BOARD_SIZE) / 2) - 74)
 export const BOARD_BOTTOM = BOARD_Y + BOARD_SIZE
 
-export const BAR_Y = 1150 // bottom action bar (raised toward the pods for reach)
+export const BAR_Y = H - 116 // bottom action bar, a thumb's reach up from the edge
 
 export const POWER_SLOT_KEYS = ['fire', 'water', 'earth'] // buttons in the bottom bar (air auto-applies)
 
-// Avatar profiles live in the strips above / below the board, not on it.
-export const POD_R = 36
+// Profiles float midway between the board edge and the screen chrome, so the
+// space top and bottom reads as breathing room, not a void.
+export const POD_R = 42
+const TOP_MID = Math.round((58 + BOARD_Y) / 2)
+const BOT_MID = Math.round((BOARD_BOTTOM + BAR_Y) / 2)
 export const POD = {
-  red: { ax: 78, ay: 116, dx: 196, dy: 120, dir: 'up' },
-  green: { ax: W - 78, ay: 116, dx: W - 196, dy: 120, dir: 'up' },
-  blue: { ax: 78, ay: BOARD_BOTTOM + 76, dx: 196, dy: BOARD_BOTTOM + 80, dir: 'down' },
-  yellow: { ax: W - 78, ay: BOARD_BOTTOM + 76, dx: W - 196, dy: BOARD_BOTTOM + 80, dir: 'down' },
+  red: { ax: 88, ay: TOP_MID, dx: 220, dy: TOP_MID, dir: 'up' },
+  green: { ax: W - 88, ay: TOP_MID, dx: W - 220, dy: TOP_MID, dir: 'up' },
+  blue: { ax: 88, ay: BOT_MID, dx: 220, dy: BOT_MID, dir: 'down' },
+  yellow: { ax: W - 88, ay: BOT_MID, dx: W - 220, dy: BOT_MID, dir: 'down' },
 }
 
 // track index of each colour's entry square (also a safe square)
