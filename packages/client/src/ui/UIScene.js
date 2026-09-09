@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { W, H, RENDER_SCALE } from '../config.js'
+import { W, H } from '../config.js'
 import { DUR, EASE, dur, prefersReducedMotion } from './tokens.js'
 
 // Shared visual/interaction helpers for every scene in the app.
@@ -310,13 +310,6 @@ export class UIScene extends Phaser.Scene {
   enterScene() {
     this._leaving = false
     this.toast = null
-    // The canvas backing store is RENDER_SCALE x the logical size (main.js);
-    // zoom the camera to match so the scene is authored in plain W x H units
-    // but rasterizes at device resolution.
-    if (RENDER_SCALE !== 1) {
-      this.cameras.main.setZoom(RENDER_SCALE)
-      this.cameras.main.centerOn(W / 2, H / 2)
-    }
     this.cameras.main.fadeIn(dur(260), 8, 6, 24)
   }
 }
