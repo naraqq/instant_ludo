@@ -1,6 +1,8 @@
 import './style.css'
 import Phaser from 'phaser'
+import { LoadingScene } from './scenes/LoadingScene.js'
 import { HomeScene } from './scenes/HomeScene.js'
+import { GameSetupScene } from './scenes/GameSetupScene.js'
 import { ClassicScene } from './scenes/ClassicScene.js'
 import { NetLudoScene } from './scenes/NetLudoScene.js'
 import { sfx } from './audio.js'
@@ -19,7 +21,7 @@ const game = new Phaser.Game({
     width: W,
     height: H,
   },
-  scene: [HomeScene, ClassicScene, NetLudoScene],
+  scene: [LoadingScene, HomeScene, GameSetupScene, ClassicScene, NetLudoScene],
 })
 
 // Browsers only let an AudioContext start from inside a user gesture.

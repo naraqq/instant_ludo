@@ -7,6 +7,7 @@ import { dicePose, drawRestingDice, drawBlankDice } from '../../ui/dice3d.js'
 import { t } from '../../i18n.js'
 import { COLORS, COLOR_HEX, COLOR_LIGHT } from '@ludo/engine'
 import { POD, POD_R } from './constants.js'
+import { bonusRuneTexture } from './powers.js'
 
 export const PlayersMixin = {
   // Where a colour's pod / corner-dice sit on screen. The online scene overrides
@@ -123,10 +124,8 @@ export const PlayersMixin = {
     const tx = tray.x
     const ty = tray.y
     const token = this.add.container(fx, fy).setDepth(80)
-    const aura = this.add.circle(0, 0, 15, 0xffd54d, 0.35)
-    const plus = this.add.text(0, 0, '+1', {
-      fontFamily: 'Verdana, sans-serif', fontSize: 22, fontStyle: 'bold', color: '#fff4c8',
-    }).setOrigin(0.5).setStroke('#7a4e00', 5)
+    const aura = this.add.circle(0, 0, 16, 0xffd54d, 0.35)
+    const plus = this.add.image(0, 0, bonusRuneTexture(this)).setDisplaySize(38, 38)
     token.add([aura, plus])
     this.tweens.add({ targets: aura, scale: 1.6, alpha: 0.12, duration: 460, yoyo: true, repeat: -1, ease: EASE.breathe })
     // bezier arc, control point lifted above the midpoint

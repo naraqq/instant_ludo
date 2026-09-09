@@ -112,57 +112,61 @@ export function powerRuneTexture(scene, key) {
   return id
 }
 
-// Programmatic extra-roll badge used on the board and in the power legend.
-// The repeat arrow explains the effect without looking like currency or loot.
+// Programmatic extra-roll token, styled like Ludo-style board games: a glossy
+// gold rounded-square chip with a bold white "+1". Used on the board and in the
+// power legend.
 export function bonusRuneTexture(scene) {
-  const id = 'bonus-rune-repeat'
+  const id = 'bonus-rune-plus1'
   if (scene.textures.exists(id)) return id
-  const S = 2
-  const size = 48 * S
+  const S = 3
+  const size = 44 * S
   const cv = document.createElement('canvas')
   cv.width = cv.height = size
   const ctx = cv.getContext('2d')
-  const c = size / 2
-  const radius = 19 * S
+  const pad = 2 * S
+  const w = size - pad * 2
+  const r = 10 * S
 
-  // Clean ivory chip with a strong gold outline, neutral against every player color.
-  ctx.beginPath()
-  ctx.arc(c, c, radius, 0, Math.PI * 2)
-  ctx.fillStyle = '#fffaf0'
+  const round = (x, y, ww, hh, rr) => {
+    ctx.beginPath()
+    ctx.moveTo(x + rr, y)
+    ctx.arcTo(x + ww, y, x + ww, y + hh, rr)
+    ctx.arcTo(x + ww, y + hh, x, y + hh, rr)
+    ctx.arcTo(x, y + hh, x, y, rr)
+    ctx.arcTo(x, y, x + ww, y, rr)
+    ctx.closePath()
+  }
+
+  // gold body: bright at the top, amber at the base
+  const body = ctx.createLinearGradient(0, pad, 0, pad + w)
+  body.addColorStop(0, '#ffdd63')
+  body.addColorStop(0.5, '#ffc531')
+  body.addColorStop(1, '#f2a013')
+  round(pad, pad, w, w, r)
+  ctx.fillStyle = body
   ctx.fill()
-  ctx.strokeStyle = '#e2a915'
-  ctx.lineWidth = 3 * S
+  ctx.lineWidth = 2 * S
+  ctx.strokeStyle = '#b3700b'
   ctx.stroke()
 
-  // Circular arrow: one more trip to the dice.
-  const arrowRadius = 14.5 * S
-  const start = -Math.PI * 0.78
-  const end = Math.PI * 1.02
-  ctx.beginPath()
-  ctx.arc(c, c, arrowRadius, start, end)
-  ctx.strokeStyle = '#e2a915'
-  ctx.lineWidth = 3.25 * S
-  ctx.lineCap = 'round'
-  ctx.stroke()
-  const ax = c + Math.cos(end) * arrowRadius
-  const ay = c + Math.sin(end) * arrowRadius
-  ctx.save()
-  ctx.translate(ax, ay)
-  ctx.rotate(end + Math.PI / 2)
-  ctx.beginPath()
-  ctx.moveTo(0, 0)
-  ctx.lineTo(-4.5 * S, -3.5 * S)
-  ctx.lineTo(4 * S, -4 * S)
-  ctx.closePath()
-  ctx.fillStyle = '#e2a915'
+  // top gloss band
+  round(pad + 2.5 * S, pad + 2.5 * S, w - 5 * S, w * 0.44, r * 0.72)
+  const gloss = ctx.createLinearGradient(0, pad, 0, pad + w * 0.5)
+  gloss.addColorStop(0, 'rgba(255,255,255,0.6)')
+  gloss.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = gloss
   ctx.fill()
-  ctx.restore()
 
-  ctx.font = `900 ${16 * S}px Arial Black, Verdana, sans-serif`
+  // "+1" - deep brown on the gold, with a thin bright top edge for legibility
+  const cx = size / 2
+  const cy = size / 2 + S
+  ctx.font = `900 ${20 * S}px "Arial Black", Arial, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillStyle = '#4b3500'
-  ctx.fillText('+1', c, c + S)
+  ctx.fillStyle = 'rgba(255,240,190,0.55)'
+  ctx.fillText('+1', cx, cy - 1.5 * S)
+  ctx.fillStyle = '#6e3b06'
+  ctx.fillText('+1', cx, cy)
 
   scene.textures.addCanvas(id, cv)
   return id
@@ -370,27 +374,9 @@ export const PowersMixin = {
       sfx.power()
       this.updatePowerButtons()
       overlay.destroy()
-      // The chosen face flies straight to the corner tray and snaps in - then
-      // the roll resolves with no tumble (you chose it; it isn't random).
-      const tray = this.cornerDice[color]?.container
-      const tx = tray ? tray.x : W / 2
-      const ty = tray ? tray.y : panelY - 220
-      if (prefersReducedMotion || !tray) { this.rollDice(); return }
-      const chosen = this.add.graphics().setPosition(W / 2, panelY).setDepth(121).setScale(1)
-      drawRestingDice(chosen, value)
-      this.tweens.add({
-        targets: chosen, x: tx, y: ty, scale: 0.5,
-        duration: dur(280), ease: 'Cubic.easeIn',
-        onComplete: () => {
-          chosen.destroy()
-          const ring = this.add.circle(tx, ty, 18, 0x9ff0ff, 0).setStrokeStyle(4, 0x9ff0ff, 0.9).setDepth(60)
-          this.tweens.add({
-            targets: ring, radius: 42, alpha: { from: 0.9, to: 0 },
-            duration: dur(260), ease: 'Cubic.easeOut', onComplete: () => ring.destroy(),
-          })
-          this.rollDice()
-        },
-      })
+      // You chose the number - it isn't random, so there's no roll to watch.
+      // The die just shows the value and play continues straight to the move.
+      this.rollDice()
     }
 
     const tiles = []
@@ -551,8 +537,8 @@ export const PowersMixin = {
   createBonusRuneView(rune) {
     const { x, y } = this.getTrackPixel(rune.index)
     const c = this.add.container(x, y).setDepth(18)
-    c.add(this.add.ellipse(2, 13, 27, 7, 0x000000, 0.2))
-    const icon = this.add.image(0, -2, bonusRuneTexture(this)).setDisplaySize(36, 36)
+    c.add(this.add.ellipse(1, 15, 30, 8, 0x000000, 0.22))
+    const icon = this.add.image(0, -1, bonusRuneTexture(this)).setDisplaySize(42, 42)
     c.add(icon)
     return c
   },
@@ -659,7 +645,7 @@ export const PowersMixin = {
       return
     }
     this._gatePickOwner = color
-    this.showGatePicker(color, grant)
+    this.showGatePicker(color, grant, at)
   },
 
   applyGateRune(color, key) {
@@ -726,9 +712,13 @@ export const PowersMixin = {
     }))
   },
 
-  showGatePicker(color, onPick) {
+  // `origin` (optional): the gate's board position, in scene pixels. When given,
+  // the rune cards are dealt out of the gate and slot into the panel.
+  showGatePicker(color, onPick, origin) {
     if (this.gatePicker) this.closeGatePicker()
 
+    const compact = Boolean(this._behind)
+    const fromGate = origin && Number.isFinite(origin.x) && Number.isFinite(origin.y)
     const panelW = 396
     const panelH = 196
     const tileW = 112
@@ -784,6 +774,7 @@ export const PowersMixin = {
     this._gatePickChoose = choose
 
     const tiles = []
+    const zones = []
     GATE_RUNES.forEach((key, i) => {
       const gx = xs[i]
       const tint = POWER_META[key].tint
@@ -822,6 +813,7 @@ export const PowersMixin = {
       })
       zone.on('pointerup', () => choose(key))
       overlay.add(zone)
+      zones.push(zone)
     })
 
     this.gatePicker = overlay
@@ -831,15 +823,46 @@ export const PowersMixin = {
     if (!prefersReducedMotion) {
       dim.setAlpha(0)
       this.tweens.add({ targets: dim, alpha: 0.5, duration: dur(DUR.fast) })
-      panel.setScale(0.84)
+      panel.setScale(fromGate ? 0.92 : 0.84)
       this.tweens.add({ targets: panel, scale: 1, duration: dur(DUR.base), ease: EASE.pop })
-      tiles.forEach((slot, i) => {
-        slot.setScale(0).setAlpha(0)
-        this.tweens.add({
-          targets: slot, scale: 1, alpha: 1,
-          delay: dur(110 + i * 55), duration: dur(DUR.base), ease: EASE.pop,
+
+      if (fromGate) {
+        // the cards are drawn up out of the gate and settle into their slots
+        zones.forEach((z) => z.disableInteractive())
+        const step = compact ? 70 : 95
+        const flight = dur(compact ? 260 : 420)
+        tiles.forEach((slot, i) => {
+          const restX = slot.x
+          const restY = slot.y
+          slot.setPosition(origin.x - panel.x, origin.y - panel.y)
+          slot.setScale(0.14).setAlpha(0).setAngle(Phaser.Math.Between(-35, 35))
+          const delay = dur(60 + i * step)
+          this.tweens.add({ targets: slot, alpha: 1, duration: dur(110), delay })
+          this.tweens.add({
+            targets: slot, x: restX, y: restY, scale: 1, angle: 0,
+            duration: flight, delay, ease: EASE.pop,
+          })
+          // a spark tears loose at the gate as each card pulls free
+          const spark = this.add.circle(origin.x, origin.y, 5, 0xffe6a8, 0)
+            .setStrokeStyle(3, 0xffe6a8, 0.9).setDepth(119)
+          overlay.add(spark)
+          this.tweens.add({
+            targets: spark, radius: 24, alpha: { from: 0.85, to: 0 },
+            duration: dur(360), delay, ease: EASE.out, onComplete: () => spark.destroy(),
+          })
         })
-      })
+        this.time.delayedCall(dur(60 + (tiles.length - 1) * step) + flight, () => {
+          if (this.gatePicker === overlay) zones.forEach((z) => z.setInteractive({ useHandCursor: true }))
+        })
+      } else {
+        tiles.forEach((slot, i) => {
+          slot.setScale(0).setAlpha(0)
+          this.tweens.add({
+            targets: slot, scale: 1, alpha: 1,
+            delay: dur(110 + i * 55), duration: dur(DUR.base), ease: EASE.pop,
+          })
+        })
+      }
     }
   },
 

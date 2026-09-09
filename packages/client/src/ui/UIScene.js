@@ -93,6 +93,22 @@ export class UIScene extends Phaser.Scene {
     })
   }
 
+  // The lobby / setup screens are authored for a fixed 720x1280 canvas. The real
+  // canvas height tracks the viewport aspect (config.js), so drop everything
+  // except the full-bleed background into one container and fit it to the real
+  // height: centre it when the canvas is taller than the design, scale it down
+  // when it's shorter (screens wider than 16:9). Never upscale, never spill off
+  // the top or bottom. Call once, after building the screen, before any modal.
+  fitDesignRoot(bg, { designH = 1280 } = {}) {
+    const root = this.add.container(0, 0)
+    root.add(this.children.list.filter((o) => o !== root && o !== bg))
+    root.sort('depth')
+    const scale = Math.min(1, H / designH)
+    root.setScale(scale)
+    root.setY(Math.round((H - designH * scale) / 2))
+    return root
+  }
+
   makeBackgroundTexture(key, topColor, bottomColor, { stars = true } = {}) {
     if (this.textures.exists(key)) return
     const canvas = document.createElement('canvas')
@@ -158,6 +174,43 @@ export class UIScene extends Phaser.Scene {
       ctx.stroke()
     }
 
+    this.textures.addCanvas(key, canvas)
+  }
+
+  // A layered, glossy "candy" panel/button texture - the visual language of the
+  // lobby and setup screens. Baked by hand (Canvas API) like the helpers above.
+  makeCandyTexture(key, w, h, top, bottom, radius, edge) {
+    if (this.textures.exists(key)) return
+    const css = (n) => `#${n.toString(16).padStart(6, '0')}`
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    const path = (x, y, width, height, r) => {
+      ctx.beginPath()
+      ctx.roundRect(x, y, width, height, r)
+      ctx.closePath()
+    }
+
+    path(1, 5, w - 2, h - 6, radius)
+    ctx.fillStyle = css(edge)
+    ctx.fill()
+    path(3, 1, w - 6, h - 10, Math.max(4, radius - 3))
+    const fill = ctx.createLinearGradient(0, 0, 0, h)
+    fill.addColorStop(0, css(top))
+    fill.addColorStop(.58, css(bottom))
+    fill.addColorStop(1, css(bottom))
+    ctx.fillStyle = fill
+    ctx.fill()
+    ctx.lineWidth = 3
+    ctx.strokeStyle = 'rgba(255,255,255,.32)'
+    ctx.stroke()
+    path(10, 8, w - 20, Math.max(12, h * .34), Math.max(4, radius - 9))
+    const shine = ctx.createLinearGradient(0, 7, 0, h * .42)
+    shine.addColorStop(0, 'rgba(255,255,255,.30)')
+    shine.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = shine
+    ctx.fill()
     this.textures.addCanvas(key, canvas)
   }
 

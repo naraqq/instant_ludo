@@ -525,19 +525,33 @@ test('online roll history keeps only the five latest consecutive results', () =>
   assert.deepEqual(s._rollHistory, { color: null, values: [] })
 })
 
-test('online timer uses the authoritative server duration', () => {
+test('online timer counts down from the server duration on a local clock', () => {
   const s = new NetLudoScene()
   s.init({})
   s.g = { phase: 'roll' }
-  s.room = {
-    state: { turnDeadline: 7000, turnDuration: 10_000 },
-    clock: { serverNow: () => 2000 },
-  }
+  s.room = { state: { turnDeadline: 999_000, turnDuration: 10_000 } }
   let fraction
   s.drawTimerArc = value => { fraction = value }
-  s.time = { addEvent: () => ({ remove() {} }) }
+  let tick
+  s.time = { now: 5_000, addEvent: ({ callback }) => { tick = callback; return { remove() {} } } }
+
+  // fresh deadline: ring starts full, anchored to the local clock (not room.clock)
+  s.armTurnTimer()
+  assert.equal(fraction, 1)
+
+  // half the duration later the ring is half-spent
+  s.time.now = 10_000
+  tick()
+  assert.equal(fraction, 0.5)
+
+  // a re-arm for the same turn keeps the original anchor, not a fresh full ring
   s.armTurnTimer()
   assert.equal(fraction, 0.5)
+
+  // past the deadline the ring is empty
+  s.time.now = 16_000
+  tick()
+  assert.equal(fraction, 0)
 })
 
 test('one tap requests manual control only once while auto mode is active', () => {

@@ -6,6 +6,7 @@ import { UIScene } from '../ui/UIScene.js'
 import { EASE, dur, prefersReducedMotion } from '../ui/tokens.js'
 import { sfx } from '../audio.js'
 import { t } from '../i18n.js'
+import { store } from '../store.js'
 import { COLOR_HEX, COLORS, PAWN_ASSETS, POWER_TYPES, START_INDEX } from '@ludo/engine'
 import { GeometryMixin } from './classic/geometry.js'
 import { BoardViewMixin } from './classic/boardView.js'
@@ -16,6 +17,13 @@ import { CombatMixin } from './classic/combat.js'
 import { DiceAnimMixin } from './classic/diceAnim.js'
 import { POD, BOARD_Y } from './classic/constants.js'
 import { joinMatch, soloMatch, createRoom, joinByCode, tryReconnect, clearReconnect, stashReconnect } from '../net/room.js'
+
+function serverDrivenMode() {
+  try {
+    if (new URLSearchParams(location.search).has('live')) return true
+    return localStorage.getItem('ludo_live') === '1'
+  } catch { return false }
+}
 
 export class NetLudoScene extends UIScene {
   constructor() {
@@ -57,6 +65,15 @@ export class NetLudoScene extends UIScene {
     this._latestGame = null
 
     this.matchConfig = { mode: 'quick', maxPlayers: 2, teams: false, ...data }
+    // client-side wager from the setup screen: entry is already debited there.
+    // Refund it if we never make it into a match; pay `win` out on a victory.
+    this.bet = data?.bet || null
+    this._betSettled = false
+    // "server-driven": skip the optimistic local dice-spin and move-prediction so
+    // every action makes a real round-trip and the server drives every
+    // animation. On for GameSetupScene matches (`data.serverDriven`); also
+    // forceable anywhere with `?live` / localStorage `ludo_live=1`.
+    this._serverDriven = Boolean(data?.serverDriven) || serverDrivenMode()
     this.g = null
     this.seats = {}
     this.myColor = null
@@ -117,7 +134,7 @@ export class NetLudoScene extends UIScene {
     return this.seats[color]?.name || t(`color.${color}`)
   }
   startTurnTimer() { /* the arc is driven by armTurnTimer from the server deadline */ }
-  stopTurnTimer() { this._turnTimer?.remove(false); Object.values(this.playerBadges || {}).forEach((b) => b.getByName('arc')?.clear()) }
+  stopTurnTimer() { this._turnTimer?.remove(false); this._armedDeadline = 0; Object.values(this.playerBadges || {}).forEach((b) => b.getByName('arc')?.clear()) }
 
   canMove(pawn) {
     if (pawn.finished) return false
@@ -142,6 +159,7 @@ export class NetLudoScene extends UIScene {
     this.add.image(W / 2, H / 2, 'bg-net-flat')
     this.createBackdrop()
     this.createTopBar()
+    this.createNetStatus()
     this.enterScene()
 
     this.status = this.add.text(W / 2, H / 2 - 30, t('net.connecting'), {
@@ -165,6 +183,7 @@ export class NetLudoScene extends UIScene {
       }
     } catch (err) {
       if (run !== this._run || this._disposed) return
+      this.refundBet()
       this.status.setText(err.message || t('net.connectFailed'))
       this.time.delayedCall(2200, () => this.goTo('Home'))
       return
@@ -172,6 +191,7 @@ export class NetLudoScene extends UIScene {
     if (run !== this._run || this._disposed) { joined.leave().catch(() => {}); return }
     this.room = joined
     this._connected = true
+    this.setNetStatus('live')
     this.bindRoom()
     const saveSeat = () => { if (this.room && !this.gameOver) stashReconnect(this.room) }
     this.time.addEvent({ delay: 15000, loop: true, callback: saveSeat })
@@ -179,9 +199,43 @@ export class NetLudoScene extends UIScene {
     this.events.once('shutdown', () => window.removeEventListener('pagehide', saveSeat))
   }
 
+  // Top-centre link indicator so it's obvious the match is server-run.
+  createNetStatus() {
+    const y = 46
+    this._netDot = this.add.circle(W / 2 - 34, y, 5, 0xf5b200).setDepth(9)
+    this._netText = this.add.text(W / 2 - 22, y - 1, 'LINK…', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#f0cd6a', fontStyle: 'bold',
+    }).setOrigin(0, 0.5).setDepth(9)
+  }
+
+  setNetStatus(state) {
+    const map = {
+      connecting: [0xf5b200, '#f0cd6a', 'LINK…'],
+      live: [0x38d66a, '#8fdcab', 'LIVE'],
+      reconnecting: [0xf5852e, '#f0b98a', 'RECONNECT…'],
+      lost: [0xe5484d, '#f0a1a3', 'OFFLINE'],
+    }
+    const [dot, col, label] = map[state] || map.connecting
+    this._netDot?.setFillStyle(dot)
+    this._netText?.setColor(col).setText(label)
+    const w = this._netText?.width ?? 40
+    this._netDot?.setX(W / 2 - w / 2 - 10)
+    this._netText?.setX(W / 2 - w / 2 + 2)
+  }
+
+  // Give the entry back if the player bails before a match actually starts
+  // (still connecting, or waiting in the lobby). Once `this.g` exists the wager
+  // is live and leaving forfeits it.
+  refundBet() {
+    if (!this.bet || this._betSettled) return
+    this._betSettled = true
+    store.addCoins(this.bet.entry)
+  }
+
   teardown() {
     this._disposed = true
     this._connected = false
+    if (!this.g) this.refundBet()
     this._turnTimer?.remove(false)
     this._autoMoveCall?.remove(false); this._autoMoveCall = null
     this._windup?.stop?.()
@@ -203,12 +257,14 @@ export class NetLudoScene extends UIScene {
       this._predicted = this._moveAnimDone = null
       if (!this._pendingBatches) this._animating = false
       stashReconnect(room)
+      this.setNetStatus('reconnecting')
       this.status?.setVisible(true).setText(t('net.reconnecting'))
       this.clearActivePawnZones()
     })
     room.onReconnect(() => {
       if (this._disposed || this.room !== room) return
       this._connected = true
+      this.setNetStatus('live')
       stashReconnect(room)
       this.status?.setVisible(false)
       this._windup?.stop?.(); this._windup = null
@@ -216,7 +272,7 @@ export class NetLudoScene extends UIScene {
       this.onStateChange()
     })
     room.onError((code, msg) => console.warn('[net] room error', code, msg))
-    room.onLeave(() => { if (this._disposed || this.room !== room) return; this._connected = false; clearReconnect(); if (!this.gameOver) this.status?.setVisible(true).setText(t('net.disconnected')) })
+    room.onLeave(() => { if (this._disposed || this.room !== room) return; this._connected = false; clearReconnect(); if (!this.gameOver) { this.setNetStatus('lost'); this.status?.setVisible(true).setText(t('net.disconnected')) } })
     room.onMessage('rejected', (m) => {
       if (this._disposed || this.room !== room) return
       this.showToast(m?.error || 'rejected')
@@ -581,17 +637,27 @@ export class NetLudoScene extends UIScene {
     view.setVisible(true).setAlpha(1)
   }
 
-  // countdown ring on the active pod, from the server's deadline
-  serverNow() { return this.room?.clock?.serverNow?.() ?? this.room?.clock?.currentTime ?? 0 }
-
+  // countdown ring on the active pod, from the server's turn deadline
   armTurnTimer() {
     this._turnTimer?.remove(false)
     const deadline = this.room?.state?.turnDeadline || 0
     const total = Number(this.room?.state?.turnDuration) || 10_000
-    if (this.gameOver || this._animating || !deadline || deadline <= this.serverNow()) { this.drawTimerArc(0); return }
+    if (this.gameOver || this._animating || !deadline) { this.drawTimerArc(0); this._armedDeadline = 0; return }
+
+    // The room declares no input, so room.clock is not time-synced and the
+    // server's turnDeadline sits on a timeline the client can't read. Anchor the
+    // countdown to the local scene clock the instant a fresh deadline lands, and
+    // run it out from there - re-arms for the same turn keep the same anchor.
+    if (deadline !== this._armedDeadline) {
+      this._armedDeadline = deadline
+      this._turnEndsAt = this.time.now + total
+      this._turnSpan = total
+    }
+    const endsAt = this._turnEndsAt
+    const span = this._turnSpan || total
     const tick = () => {
-      const left = (this.room?.state?.turnDeadline || 0) - this.serverNow()
-      this.drawTimerArc(Math.max(0, Math.min(1, left / total)))
+      const left = endsAt - this.time.now
+      this.drawTimerArc(Math.max(0, Math.min(1, left / span)))
       if (left <= 0) this._turnTimer?.remove(false)
     }
     tick()
@@ -619,7 +685,7 @@ export class NetLudoScene extends UIScene {
       // Control: the value's already chosen - no wind-up, playRoll() snaps it in
       this._snapRoll = true
       this.room.send('action', { type: 'usePower', key: 'water', value: forced })
-    } else {
+    } else if (!this._serverDriven) {
       // spin the die right now; playRoll() lands it on the server's value
       this._windup = this.diceWindup(this.myColor, { doubled: this.doubleNextRoll })
     }
@@ -636,7 +702,7 @@ export class NetLudoScene extends UIScene {
     this._animating = true
     this.room.send('action', { type: 'usePower', key })
     if (key === 'fire') {
-      this._windup = this.diceWindup(this.myColor, { doubled: true })
+      if (!this._serverDriven) this._windup = this.diceWindup(this.myColor, { doubled: true })
       this.room.send('action', { type: 'roll' })
     }
   }
@@ -647,15 +713,17 @@ export class NetLudoScene extends UIScene {
     if (pawn.color !== this.moverColor || !this.canMove(pawn)) return
     sfx.tap()
     this._animating = true
-    // the moving pawn's landing square is deterministic - animate it now and let
-    // the server's `moved` event just confirm it
-    const from = pawn.steps
-    const to = from < 0 ? 0 : Math.min(56, from + this.diceValue)
-    this._predicted = { color: pawn.color, pawnId: pawn.id, to }
-    pawn.steps = to
-    pawn.finished = to >= 56
-    this.updatePawnHighlights()
-    this._moveAnimDone = new Promise((res) => this.animatePawn(pawn, from, to, res))
+    if (!this._serverDriven) {
+      // the moving pawn's landing square is deterministic - animate it now and
+      // let the server's `moved` event just confirm it
+      const from = pawn.steps
+      const to = from < 0 ? 0 : Math.min(56, from + this.diceValue)
+      this._predicted = { color: pawn.color, pawnId: pawn.id, to }
+      pawn.steps = to
+      pawn.finished = to >= 56
+      this.updatePawnHighlights()
+      this._moveAnimDone = new Promise((res) => this.animatePawn(pawn, from, to, res))
+    }
     this.room.send('action', { type: 'move', pawnId: pawn.id })
   }
 
@@ -884,7 +952,7 @@ export class NetLudoScene extends UIScene {
     ;(this._gateIndex ||= {})[picker] = ev.index
     if (picker === this.myColor && !this._gatePickChoose) {
       this._gatePickOwner = this.myColor
-      this.showGatePicker(this.myColor, (key) => this.send({ type: 'pickGateRune', key }))
+      this.showGatePicker(this.myColor, (key) => this.send({ type: 'pickGateRune', key }), this.gatePos?.(ev.index))
     }
     return this.pause(220)
   }
@@ -977,6 +1045,21 @@ export class NetLudoScene extends UIScene {
     const teamMode = this.team != null && (ev.winningTeam ?? this.g?.winningTeam ?? -1) >= 0
     const winTeam = ev.winningTeam ?? this.g?.winningTeam
     const won = teamMode ? this.teamOf(this.myColor) === winTeam : ev.winner === this.myColor
+
+    // settle the client-side wager: the winner takes the pot, everyone else has
+    // already forfeited their entry at the setup screen.
+    let betLine = null
+    if (this.bet && !this._betSettled) {
+      this._betSettled = true
+      if (won) {
+        store.addCoins(this.bet.win)
+        this.countUp?.(this.coinText, store.coins, { format: (n) => Math.round(n).toLocaleString() })
+        betLine = t('setup.wonPot', { n: this.bet.win.toLocaleString() })
+      } else {
+        betLine = t('setup.lostBet', { n: this.bet.entry.toLocaleString() })
+      }
+    }
+
     const accent = COLOR_HEX[ev.winner]
     const layer = this.add.container(0, 0).setDepth(200)
     layer.add(this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.82).setInteractive())
@@ -991,6 +1074,11 @@ export class NetLudoScene extends UIScene {
         : t('victory.allHome', { color: t(`color.${ev.winner}`) }), {
       fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#c9b8ff',
     }).setOrigin(0.5))
+    if (betLine) {
+      card.add(this.add.text(0, 4, betLine, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 18, color: won ? '#ffe27a' : '#9fb0c8', fontStyle: 'bold',
+      }).setOrigin(0.5))
+    }
     this.makeRoundedRectTexture('net-vic-btn', 200, 56, 0x22c48d, 0x10ad85, 15, 0x64dfad)
     card.add(this.add.image(0, 74, 'net-vic-btn'))
     card.add(this.add.text(0, 74, t('victory.home'), {

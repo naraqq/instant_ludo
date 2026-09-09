@@ -3,7 +3,7 @@
 // draw call. Aligns 1:1 with gridToPixel() at _boardRot 0; the online scene
 // rotates the whole image to match its perspective.
 import {
-  COLORS, COLOR_HEX, COLOR_DARK, COLOR_LIGHT, COLOR_SURFACE, BOARD_PALETTE,
+  COLORS, COLOR_HEX, COLOR_DARK, COLOR_LIGHT, BOARD_PALETTE,
   SAFE_STOPS, HOME_LANES, YARDS, TRACK, START_INDEX,
 } from '@ludo/engine'
 import { TILE, BOARD_SIZE } from './constants.js'
@@ -71,10 +71,10 @@ export function buildBoardCanvas({ simple = false } = {}) {
     const y = by * cell
     const w = 6 * cell
     const yg = ctx.createLinearGradient(x, y, x + w * 0.4, y + w)
-    yg.addColorStop(0, hx(COLOR_LIGHT[color]))
-    yg.addColorStop(0.55, hx(COLOR_HEX[color]))
+    yg.addColorStop(0, hx(COLOR_HEX[color]))
+    yg.addColorStop(0.6, hx(COLOR_HEX[color]))
     yg.addColorStop(1, hx(COLOR_DARK[color]))
-    ctx.fillStyle = simple ? rgba(COLOR_HEX[color], 0.9) : yg
+    ctx.fillStyle = simple ? hx(COLOR_HEX[color]) : yg
     ctx.fillRect(x, y, w, w)
     if (simple) {
       ctx.strokeStyle = 'rgba(255,255,255,0.28)'
@@ -93,12 +93,12 @@ export function buildBoardCanvas({ simple = false } = {}) {
         ctx.stroke()
       }
       ctx.restore()
-      // top sheen
-      const sheen = ctx.createLinearGradient(x, y, x, y + w * 0.5)
-      sheen.addColorStop(0, 'rgba(255,255,255,0.28)')
+      // top sheen - restrained, so the colour stays solid
+      const sheen = ctx.createLinearGradient(x, y, x, y + w * 0.42)
+      sheen.addColorStop(0, 'rgba(255,255,255,0.14)')
       sheen.addColorStop(1, 'rgba(255,255,255,0)')
       ctx.fillStyle = sheen
-      ctx.fillRect(x, y, w, w * 0.5)
+      ctx.fillRect(x, y, w, w * 0.42)
     }
 
     // recessed holder
@@ -112,11 +112,12 @@ export function buildBoardCanvas({ simple = false } = {}) {
       ctx.shadowOffsetY = 5 * S
     }
     rr(ctx, hxs, hys, hw, hw, 22 * S)
-    ctx.fillStyle = simple ? rgba(COLOR_DARK[color], 0.46) : hx(COLOR_SURFACE[color])
+    // darker inset, not a white patch - the base stays a strong solid colour
+    ctx.fillStyle = simple ? rgba(COLOR_DARK[color], 0.42) : rgba(COLOR_DARK[color], 0.34)
     ctx.fill()
     ctx.restore()
     rr(ctx, hxs, hys, hw, hw, 22 * S)
-    ctx.strokeStyle = simple ? 'rgba(255,255,255,0.24)' : 'rgba(255,255,255,0.95)'
+    ctx.strokeStyle = simple ? 'rgba(255,255,255,0.24)' : 'rgba(255,255,255,0.4)'
     ctx.lineWidth = (simple ? 1.5 : 3) * S
     ctx.stroke()
     rr(ctx, hxs + 2 * S, hys + 2 * S, hw - 4 * S, hw - 4 * S, 20 * S)
@@ -169,9 +170,9 @@ export function buildBoardCanvas({ simple = false } = {}) {
     // top highlight
     if (!simple) {
       const hl = ctx.createLinearGradient(x, y, x, y + s)
-      hl.addColorStop(0, 'rgba(255,255,255,0.5)')
-      hl.addColorStop(0.5, 'rgba(255,255,255,0)')
-      hl.addColorStop(1, 'rgba(0,0,0,0.06)')
+      hl.addColorStop(0, 'rgba(255,255,255,0.32)')
+      hl.addColorStop(0.45, 'rgba(255,255,255,0)')
+      hl.addColorStop(1, 'rgba(0,0,0,0.07)')
       rr(ctx, x, y, s, s, radius)
       ctx.fillStyle = hl
       ctx.fill()

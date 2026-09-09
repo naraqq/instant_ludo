@@ -3,29 +3,30 @@
 
 export const COLORS = ['red', 'green', 'yellow', 'blue']
 
+// Bold, saturated board colours - classic Ludo, not pastel.
 export const COLOR_HEX = {
-  red: 0xf04452,
-  green: 0x12af78,
-  yellow: 0xf5b82e,
-  blue: 0x3478ed,
+  red: 0xc1272d,
+  green: 0x179c3f,
+  yellow: 0xf5b200,
+  blue: 0x1f6fe0,
 }
 export const COLOR_DARK = {
-  red: 0xb52943,
-  green: 0x087958,
-  yellow: 0xb77c12,
-  blue: 0x2451ac,
+  red: 0x8b141a,
+  green: 0x0d6f2b,
+  yellow: 0xc08600,
+  blue: 0x134da8,
 }
 export const COLOR_LIGHT = {
-  red: 0xff7b83,
-  green: 0x5cdda5,
-  yellow: 0xffda70,
-  blue: 0x7aafff,
+  red: 0xd54a4a,
+  green: 0x37bd5c,
+  yellow: 0xffc734,
+  blue: 0x4a90ea,
 }
 export const COLOR_SURFACE = {
-  red: 0xfff3f4,
-  green: 0xedfbf4,
-  yellow: 0xfff9e9,
-  blue: 0xeff5ff,
+  red: 0xf7dedb,
+  green: 0xd6efdc,
+  yellow: 0xfaeecb,
+  blue: 0xd9e7fb,
 }
 export const BOARD_PALETTE = {
   track: 0xf5f7fc,

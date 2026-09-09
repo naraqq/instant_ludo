@@ -1,17 +1,18 @@
 import Phaser from 'phaser'
-import { W, H, HOME_V, CONTENT_W } from '../config.js'
+import { W, H, CONTENT_W } from '../config.js'
 import { UIScene } from '../ui/UIScene.js'
 import { DUR, EASE, dur, prefersReducedMotion } from '../ui/tokens.js'
 import { store, xpForLevel } from '../store.js'
 import { session, onSession, setDisplayName } from '../net/playfab.js'
 import { sfx } from '../audio.js'
-import { COLOR_HEX, COLOR_DARK } from '@ludo/engine'
+import { COLOR_HEX } from '@ludo/engine'
 import { drawRestingDice } from '../ui/dice3d.js'
 import { buildBoardCanvas } from './classic/boardArt.js'
 import { powerRuneTexture, bonusRuneTexture, POWER_META } from './classic/powers.js'
 import { t, getLocale, setLocale, LOCALES, LOCALE_LABEL } from '../i18n.js'
 
 const FREE_COINS_AMOUNT = 5000
+const GAME_FONT = '"Arial Rounded MT Bold", "Trebuchet MS", Arial, sans-serif'
 const ELEMENTS = [
   { key: 'fire', color: COLOR_HEX.red },
   { key: 'water', color: COLOR_HEX.blue },
@@ -25,18 +26,18 @@ export class HomeScene extends UIScene {
   }
 
   preload() {
-    this.makeBackgroundTexture('bg-home', '#0b1526', '#17233d')
+    this.makeBackgroundTexture('bg-home-candy', '#203665', '#09142d', { stars: false })
     ELEMENTS.forEach(({ key }) => {
-      this.load.image(`hero-${key}`, `assets/sprites/pawn-${key}.png`)
-      this.load.image(`hero-${key}-sm`, `assets/sprites/pawn-${key}-sm.png`)
-      this.load.image(`rune-${key}`, `assets/sprites/rune-${key}.png`)
+      if (!this.textures.exists(`hero-${key}`)) this.load.image(`hero-${key}`, `assets/sprites/pawn-${key}.png`)
+      if (!this.textures.exists(`hero-${key}-sm`)) this.load.image(`hero-${key}-sm`, `assets/sprites/pawn-${key}-sm.png`)
+      if (!this.textures.exists(`rune-${key}`)) this.load.image(`rune-${key}`, `assets/sprites/rune-${key}.png`)
     })
   }
 
   create() {
     this._leaving = false
     this.homeLocale = getLocale()
-    const bg = this.add.image(W / 2, H / 2, 'bg-home')
+    const bg = this.add.image(W / 2, H / 2, 'bg-home-candy')
     this.createBackdrop()
     this.createTopPanel()
     this.createHero()
@@ -46,14 +47,9 @@ export class HomeScene extends UIScene {
     this.createPowerLegend()
     this.createFooter()
 
-    // Content is laid out for a 1280 canvas; drop it (all but the full-bleed
-    // background) into one container and re-centre on the taller canvas. Modals,
-    // added later, stay at the true centre.
-    if (HOME_V) {
-      const root = this.add.container(0, HOME_V)
-      root.add(this.children.list.filter((o) => o !== root && o !== bg))
-      root.sort('depth')
-    }
+    // Fit the 1280-tall layout to the real canvas (centre when taller, scale
+    // down when shorter). Modals, added later, stay at the true centre.
+    this.fitDesignRoot(bg)
 
     this.modalParts = null
     this.input.keyboard?.on('keydown-ESC', this.closeModal, this)
@@ -66,7 +62,10 @@ export class HomeScene extends UIScene {
 
   createBackdrop() {
     const g = this.add.graphics().setDepth(0)
-    // Four elemental orbits frame the arena, baked into a single graphics object.
+    // Broad, soft shapes give the menu the depth of a modern mobile-game lobby.
+    g.fillStyle(0x4a66ad, .10).fillCircle(W / 2, 340, 390)
+    g.fillStyle(0x6a49a8, .07).fillCircle(90, 770, 280)
+    g.fillStyle(0x24b9ae, .06).fillCircle(690, 930, 320)
     ELEMENTS.forEach(({ color }, i) => {
       const x = [125, 570, 180, 548][i]
       const y = [325, 365, 530, 545][i]
@@ -74,8 +73,8 @@ export class HomeScene extends UIScene {
         g.fillStyle(color, .018).fillCircle(x, y, r * 28)
       }
     })
-    g.lineStyle(1, 0x91b6d3, .12).strokeEllipse(W / 2, 439, 614, 316)
-    g.lineStyle(1, 0x91b6d3, .06).strokeEllipse(W / 2, 439, 658, 368)
+    g.lineStyle(2, 0xa9c8ff, .10).strokeEllipse(W / 2, 439, 614, 316)
+    g.lineStyle(2, 0xa9c8ff, .05).strokeEllipse(W / 2, 439, 658, 368)
     // Soft concentric washes add depth without competing with the characters.
     for (let i = 6; i > 0; i--) {
       g.fillStyle(0x54b5bc, .012)
@@ -89,29 +88,31 @@ export class HomeScene extends UIScene {
 
   createTopPanel() {
     this.topPanel = this.add.container(W / 2, 66).setDepth(6)
-    this.topPanel.add(this.add.circle(-290, 0, 29, 0x283654))
+    this.topPanel.add(this.add.circle(-290, 2, 34, 0x071b4a))
+    this.topPanel.add(this.add.circle(-290, -2, 32, 0x168dff).setStrokeStyle(3, 0x64caff))
     this.topPanel.add(this.add.image(-290, 24, 'hero-water-sm').setOrigin(.5, 1).setScale(57 / 120))
     this.topPanel.add(this.add.text(-246, -14, t('home.level', { n: store.level }), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#f5f7fc', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 18, color: '#ffffff', fontStyle: 'bold',
+      stroke: '#0b1735', strokeThickness: 4,
     }))
     const pct = Phaser.Math.Clamp(store.xp / xpForLevel(store.level), 0, 1)
-    this.topPanel.add(this.add.rectangle(-246, 19, 140, 5, 0x34314e).setOrigin(0, .5))
-    this.topPanel.add(this.add.rectangle(-246, 19, Math.max(2, 140 * pct), 5, COLOR_HEX.green).setOrigin(0, .5))
+    this.topPanel.add(this.add.rectangle(-246, 20, 144, 12, 0x07162f).setOrigin(0, .5).setStrokeStyle(2, 0x376aa6))
+    this.topPanel.add(this.add.rectangle(-244, 20, Math.max(3, 140 * pct), 7, 0x70ef22).setOrigin(0, .5))
     this.topPanel.add(this.add.text(-94, 19, `${Math.round(store.xp)}/${xpForLevel(store.level)}`, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 10, color: '#a6a7bf',
+      fontFamily: GAME_FONT, fontSize: 10, color: '#c9ddff', fontStyle: 'bold',
     }).setOrigin(0, .5))
-    this.makeRoundedRectTexture('home-wallet-v3', 194, 56, 0x263a4e, 0x192b3f, 20)
-    this.topPanel.add(this.add.image(226, 0, 'home-wallet-v3'))
-    this.topPanel.add(this.add.circle(157, 0, 14, COLOR_HEX.yellow))
-    this.topPanel.add(this.add.text(157, -1, '★', { fontSize: 13, color: '#87540d' }).setOrigin(.5))
+    this.makeCandyTexture('home-wallet-candy', 194, 60, 0x7754dc, 0x382584, 24, 0x1a1557)
+    this.topPanel.add(this.add.image(226, 3, 'home-wallet-candy'))
+    this.topPanel.add(this.add.circle(157, 1, 17, 0xff9a16).setStrokeStyle(3, 0xffdc43))
+    this.topPanel.add(this.add.text(157, -1, '★', { fontFamily: GAME_FONT, fontSize: 15, color: '#fff4a0', stroke: '#b15c00', strokeThickness: 2 }).setOrigin(.5))
     this.coinLabel = this.add.text(182, 0, store.coins.toLocaleString(), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#ffe4a1', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 21, color: '#ffffff', fontStyle: 'bold', stroke: '#241258', strokeThickness: 3,
     }).setOrigin(0, .5)
     this.topPanel.add(this.coinLabel)
 
     // PlayFab identity: name under the avatar, tap the avatar to rename.
     this.nameLabel = this.add.text(-290, 44, this.playerLabel(), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 10, color: '#b9a9ef', align: 'center',
+      fontFamily: GAME_FONT, fontSize: 11, color: '#bfe5ff', align: 'center', fontStyle: 'bold',
     }).setOrigin(0.5, 0)
     this.topPanel.add(this.nameLabel)
     this.makeHitZone(W / 2 - 290, 62, 74, 96).setDepth(7)
@@ -141,17 +142,19 @@ export class HomeScene extends UIScene {
   createHero() {
     this.wordmark = this.add.container(W / 2, 150).setDepth(5)
     this.wordmark.add(this.add.text(0, 0, 'E L E M E N T A L', {
-      fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#93b2c9', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 18, color: '#bde8ff', fontStyle: 'bold',
+      stroke: '#10224c', strokeThickness: 4,
     }).setOrigin(.5))
     ;['L', 'U', 'D', 'O'].forEach((letter, i) => {
       const colors = [COLOR_HEX.red, COLOR_HEX.green, COLOR_HEX.blue, COLOR_HEX.yellow]
       this.wordmark.add(this.add.text(-108 + i * 72, 57, letter, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 96,
+        fontFamily: GAME_FONT, fontSize: 100,
         color: `#${colors[i].toString(16).padStart(6, '0')}`, fontStyle: 'bold',
-      }).setOrigin(.5).setShadow(0, 5, '#090b22', 0, true, true))
+        stroke: '#ffffff', strokeThickness: 3,
+      }).setOrigin(.5).setShadow(0, 8, '#091336', 4, true, true))
     })
     this.wordmark.add(this.add.text(0, 121, t('home.tagline'), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 16, color: '#c0bbd5',
+      fontFamily: GAME_FONT, fontSize: 17, color: '#ffffff', fontStyle: 'bold', stroke: '#15234b', strokeThickness: 3,
     }).setOrigin(.5))
 
     // Miniature of the real board, tilted like a card the mascots stand on.
@@ -173,7 +176,7 @@ export class HomeScene extends UIScene {
     const heroDie = this.add.graphics().setPosition(589, 320).setAngle(12).setScale(.72).setDepth(4)
     drawRestingDice(heroDie, 5)
     this.add.text(W / 2, 602, t('home.modeHint'), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#b6b2cc',
+      fontFamily: GAME_FONT, fontSize: 15, color: '#dceaff', fontStyle: 'bold', stroke: '#0b1835', strokeThickness: 3,
     }).setOrigin(.5).setDepth(5)
   }
 
@@ -198,34 +201,35 @@ export class HomeScene extends UIScene {
     const y = 674
     const w = 648
     const h = 94
-    this.makeRoundedRectTexture('home-play-v3', w, h, 0x22c48d, COLOR_HEX.green, 24)
+    this.makeCandyTexture('home-play-candy', w, h, 0x8cf70c, 0x20c900, 34, 0x087c21)
     this.playBtn = this.add.container(W / 2, y).setDepth(8).setData('baseScale', 1)
     const shadow = this.add.graphics()
-    shadow.fillStyle(0x071d22, .45).fillRoundedRect(-w / 2, -h / 2 + 8, w, h, 24)
+    shadow.fillStyle(0x04142c, .62).fillRoundedRect(-w / 2, -h / 2 + 11, w, h, 34)
     this.playBtn.add(shadow)
-    this.playBtn.add(this.add.image(0, 0, 'home-play-v3'))
+    this.playBtn.add(this.add.image(0, 0, 'home-play-candy'))
     const icon = this.add.graphics().setPosition(-263, 0).setScale(.6)
     drawRestingDice(icon, 6)
     this.playBtn.add(icon)
     this.playBtn.add(this.add.text(0, -1, t('home.play'), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 31, color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(.5))
-    this.playBtn.add(this.add.text(270, -1, '→', { fontFamily: 'Arial', fontSize: 32, color: '#e5fff4' }).setOrigin(.5))
-    this.addPressFeedback(this.makeHitZone(W / 2, y, w, h).setDepth(8), this.playBtn, () => this.openGameSetup())
+      fontFamily: GAME_FONT, fontSize: 34, color: '#ffffff', fontStyle: 'bold',
+      stroke: '#168000', strokeThickness: 6,
+    }).setOrigin(.5).setShadow(0, 3, '#0d7500', 0, true, true))
+    this.playBtn.add(this.add.text(270, -1, '›', { fontFamily: GAME_FONT, fontSize: 45, color: '#ffffff', stroke: '#168000', strokeThickness: 4 }).setOrigin(.5))
+    this.addPressFeedback(this.makeHitZone(W / 2, y, w, h).setDepth(8), this.playBtn, () => this.goTo('Setup'))
   }
 
   createSecondaryRow() {
     const y = 784
     const w = 314
-    this.makeRoundedRectTexture('home-secondary-v3', w, 78, 0x21344c, 0x17263b, 20)
+    this.makeCandyTexture('home-secondary-candy', w, 78, 0x2498ff, 0x1163d5, 22, 0x083b91)
     const make = (x, icon, label, onClick) => {
       const c = this.add.container(x, y).setDepth(7).setData('baseScale', 1)
-      c.add(this.add.image(0, 0, 'home-secondary-v3'))
-      c.add(this.add.text(-w / 2 + 38, 0, icon, { fontFamily: 'Arial', fontSize: 25, color: '#a99cdb' }).setOrigin(.5))
+      c.add(this.add.image(0, 0, 'home-secondary-candy'))
+      c.add(this.add.text(-w / 2 + 38, 0, icon, { fontFamily: GAME_FONT, fontSize: 25, color: '#e9f8ff', stroke: '#0752ae', strokeThickness: 3 }).setOrigin(.5))
       c.add(this.add.text(-w / 2 + 72, 0, label, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#f0edf8', fontStyle: 'bold',
+        fontFamily: GAME_FONT, fontSize: 19, color: '#ffffff', fontStyle: 'bold', stroke: '#0752ae', strokeThickness: 3,
       }).setOrigin(0, .5))
-      c.add(this.add.text(w / 2 - 26, -1, '›', { fontFamily: 'Arial', fontSize: 28, color: '#8f87a9' }).setOrigin(.5))
+      c.add(this.add.text(w / 2 - 26, -1, '›', { fontFamily: GAME_FONT, fontSize: 31, color: '#ffffff', stroke: '#0752ae', strokeThickness: 3 }).setOrigin(.5))
       this.addPressFeedback(this.makeHitZone(x, y, w, 78).setDepth(7), c, onClick)
       return c
     }
@@ -238,21 +242,20 @@ export class HomeScene extends UIScene {
   createDailyStrip() {
     const y = 894
     const ready = store.freeCoinsReady()
-    this.makeRoundedRectTexture('home-daily-v3', 648, 94, 0x273344, 0x192737, 22)
+    this.makeCandyTexture('home-daily-candy', 648, 94, 0x8a49e8, 0x5121a9, 24, 0x2d126f)
     this.dailyStrip = this.add.container(W / 2, y).setDepth(7).setData('baseScale', 1)
-    this.dailyStrip.add(this.add.image(0, 0, 'home-daily-v3'))
-    this.dailyStrip.add(this.add.circle(-271, 0, 24, 0x5b4535))
-    this.dailyStrip.add(this.add.circle(-271, 0, 14, COLOR_HEX.yellow))
-    this.dailyStrip.add(this.add.text(-271, -1, '★', { fontSize: 14, color: '#87540d' }).setOrigin(.5))
+    this.dailyStrip.add(this.add.image(0, 0, 'home-daily-candy'))
+    this.dailyStrip.add(this.add.circle(-271, 0, 25, 0xff8b09).setStrokeStyle(3, 0xffdd3d))
+    this.dailyStrip.add(this.add.text(-271, -1, '★', { fontFamily: GAME_FONT, fontSize: 16, color: '#fff6a5', stroke: '#b75800', strokeThickness: 2 }).setOrigin(.5))
     this.dailyStrip.add(this.add.text(-230, -16, t('home.dailyTitle'), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 17, fontStyle: 'bold', color: '#fff0cd',
+      fontFamily: GAME_FONT, fontSize: 19, fontStyle: 'bold', color: '#ffffff', stroke: '#321071', strokeThickness: 3,
     }).setOrigin(0, .5))
     this.dailyText = this.add.text(-230, 13, '', {
-      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#c9bba8',
+      fontFamily: GAME_FONT, fontSize: 13, color: '#eadfff', fontStyle: 'bold',
     }).setOrigin(0, .5)
     this.dailyStrip.add(this.dailyText)
     this.dailyAmount = this.add.text(290, 0, ready ? `+${FREE_COINS_AMOUNT.toLocaleString()}` : '◷', {
-      fontFamily: 'Verdana, sans-serif', fontSize: ready ? 23 : 28, color: '#ffda70', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: ready ? 25 : 28, color: '#fff45a', fontStyle: 'bold', stroke: '#963d00', strokeThickness: 4,
     }).setOrigin(1, .5)
     this.dailyStrip.add(this.dailyAmount)
     this.refreshDaily()
@@ -286,7 +289,7 @@ export class HomeScene extends UIScene {
   createPowerLegend() {
     this.legend = this.add.container(W / 2, 988).setDepth(6)
     this.legend.add(this.add.text(-324, 0, t('home.powersTitle'), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#a9a0c0', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 14, color: '#ffffff', fontStyle: 'bold', stroke: '#101d40', strokeThickness: 3,
     }))
     const items = [
       { key: 'fire', tex: powerRuneTexture(this, 'fire'), name: POWER_META.fire.name, blurb: POWER_META.fire.blurb },
@@ -296,16 +299,18 @@ export class HomeScene extends UIScene {
     ]
     items.forEach(({ tex, name, blurb }, i) => {
       const x = -246 + i * 164
-      const panel = this.add.graphics()
-      panel.fillStyle(0x1a2b40, .55).fillRoundedRect(x - 77, 26, 154, 150, 18)
-      panel.lineStyle(1, 0x33506e, .5).strokeRoundedRect(x - 77, 26, 154, 150, 18)
-      this.legend.add(panel)
+      const tops = [0xd85b50, 0x3696ef, 0x34b39c, 0xc99a35]
+      const colors = [0xb43831, 0x126ac8, 0x168b75, 0x9a6b13]
+      const edges = [0x6e1d23, 0x083b87, 0x075447, 0x604009]
+      const texture = `home-power-card-${i}`
+      this.makeCandyTexture(texture, 154, 150, tops[i], colors[i], 20, edges[i])
+      this.legend.add(this.add.image(x, 101, texture))
       this.legend.add(this.add.image(x, 72, tex).setDisplaySize(52, 52))
       this.legend.add(this.add.text(x, 110, name, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#ffffff', fontStyle: 'bold',
+        fontFamily: GAME_FONT, fontSize: 13, color: '#ffffff', fontStyle: 'bold', stroke: '#152142', strokeThickness: 3,
       }).setOrigin(.5))
       this.legend.add(this.add.text(x, 142, blurb, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 10, color: '#a9c0d6', align: 'center',
+        fontFamily: GAME_FONT, fontSize: 10, color: '#f1f6ff', align: 'center', fontStyle: 'bold',
         wordWrap: { width: 138 },
       }).setOrigin(.5))
     })
@@ -319,7 +324,7 @@ export class HomeScene extends UIScene {
       ? t('home.record', { n: st.games, p: Math.round((st.wins / st.games) * 100), s: st.bestStreak })
       : t('home.firstMatch')
     this.footer = this.add.text(W / 2, 1196, line, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#8f80c8',
+      fontFamily: GAME_FONT, fontSize: 14, color: '#bcd5ff', fontStyle: 'bold', stroke: '#0b1733', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(6)
   }
 
@@ -357,26 +362,25 @@ export class HomeScene extends UIScene {
     const replacing = Boolean(this.modalParts)
     this.destroyModal()
 
-    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.72).setDepth(499)
+    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x03091d, 0.78).setDepth(499)
     const dimZone = this.add.zone(W / 2, H / 2, W, H).setDepth(499).setInteractive()
     dimZone.on('pointerup', () => this.closeModal())
 
     const cardW = CONTENT_W - 6
     const key = `modal-card-${heightPx}`
-    this.makeRoundedRectTexture(key, cardW, heightPx, 0x21344c, 0x101e31, 26, 0x3b5269)
+    this.makeCandyTexture(key, cardW, heightPx, 0x3159a0, 0x142b5d, 32, 0x09183c)
     const card = this.add.container(W / 2, H / 2).setDepth(501)
     card.add(this.add.image(0, 0, key))
-    ELEMENTS.forEach(({ color }, i) => {
-      card.add(this.add.rectangle(-54 + i * 36, -heightPx / 2 + 12, 26, 3, color, .9))
-    })
+    card.add(this.add.rectangle(0, -heightPx / 2 + 10, cardW - 76, 5, 0x68bfff, .8))
     card.add(this.add.zone(0, 0, cardW, heightPx).setInteractive())
     card.add(this.add.text(0, -heightPx / 2 + 40, title, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 28, color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(0.5))
+      fontFamily: GAME_FONT, fontSize: 31, color: '#fff352', fontStyle: 'bold',
+      stroke: '#8e3d00', strokeThickness: 6,
+    }).setOrigin(0.5).setShadow(0, 3, '#602100', 0, true, true))
 
-    card.add(this.add.circle(cardW / 2 - 34, -heightPx / 2 + 34, 16, 0x0c1330, 0.7))
+    card.add(this.add.circle(cardW / 2 - 34, -heightPx / 2 + 34, 19, 0x0a1a45, .9).setStrokeStyle(2, 0x659de0))
     card.add(this.add.text(cardW / 2 - 34, -heightPx / 2 + 33, '✕', {
-      fontFamily: 'Verdana, sans-serif', fontSize: 16, color: '#ffffff', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 17, color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5))
     const closeZone = this.add.zone(cardW / 2 - 34, -heightPx / 2 + 34, 88, 88).setInteractive({ useHandCursor: true })
     closeZone.on('pointerup', () => this.closeModal())
@@ -403,19 +407,18 @@ export class HomeScene extends UIScene {
   }
 
   modalChip(card, x, y, w, label, selected, onPick) {
-    const key = `chip-${w}-${selected ? 'on' : 'off'}`
-    this.makeRoundedRectTexture(
-      key, w, 76,
-      selected ? COLOR_HEX.blue : 0x23364c,
-      selected ? COLOR_DARK.blue : 0x17263a,
-      12,
-      selected ? 0x7aafff : 0x3c526c
-    )
+    const key = `candy-chip-${w}-${selected ? 'on' : 'off'}`
+    this.makeCandyTexture(key, w, 76,
+      selected ? 0x80ef13 : 0x3571bd,
+      selected ? 0x22b905 : 0x193f83,
+      17,
+      selected ? 0x087321 : 0x0b285d)
     const visual = this.add.container(x, y).setData('baseScale', 1)
     card.add(visual)
     visual.add(this.add.image(0, 0, key))
     visual.add(this.add.text(0, 0, label, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 20, color: '#ffffff', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 20, color: '#ffffff', fontStyle: 'bold',
+      stroke: selected ? '#177000' : '#102958', strokeThickness: 4,
     }).setOrigin(0.5))
     const z = this.add.zone(x, y, w, 84).setInteractive({ useHandCursor: true })
     this.addPressFeedback(z, visual, () => { sfx.tap(); onPick() })
@@ -424,95 +427,27 @@ export class HomeScene extends UIScene {
 
   modalLabel(card, y, text) {
     card.add(this.add.text(0, y, text, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 18, color: '#9d8fd6', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 18, color: '#bfeaff', fontStyle: 'bold', stroke: '#122654', strokeThickness: 3,
     }).setOrigin(0.5))
   }
 
   modalButton(card, x, y, w, label, primary, onClick) {
-    const key = `modal-btn-${w}-${primary ? 'p' : 'g'}`
-    this.makeRoundedRectTexture(
-      key, w, 76,
-      primary ? 0x22c48d : 0x23364c,
-      primary ? COLOR_HEX.green : 0x17263a,
-      15,
-      primary ? 0x64dfad : 0x3c526c
-    )
+    const key = `candy-modal-btn-${w}-${primary ? 'p' : 'g'}`
+    this.makeCandyTexture(key, w, 76,
+      primary ? 0x85f20d : 0x28a4ff,
+      primary ? 0x20c303 : 0x1268d6,
+      20,
+      primary ? 0x08791c : 0x073b8e)
     const visual = this.add.container(x, y).setData('baseScale', 1)
     card.add(visual)
     visual.add(this.add.image(0, 0, key))
     visual.add(this.add.text(0, 0, label, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 22, color: '#ffffff', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 22, color: '#ffffff', fontStyle: 'bold',
+      stroke: primary ? '#167600' : '#084b9d', strokeThickness: 4,
     }).setOrigin(0.5))
     const z = this.add.zone(x, y, w, 84).setInteractive({ useHandCursor: true })
     this.addPressFeedback(z, visual, () => { sfx.tap(); onClick() })
     card.add(z)
-  }
-
-  // ---------- new game setup ----------
-
-  openGameSetup(state) {
-    const s = state || { opponents: 3, mode: 'cpu', difficulty: store.difficulty }
-    const online = s.mode === 'online'
-    const cardH = online ? 664 : 620
-    const { card } = this.buildModal(t('setup.title'), cardH)
-    const T = -cardH / 2
-    const reopen = () => this.openGameSetup({ ...s })
-
-    this.modalLabel(card, T + 100, t('setup.playAgainst'))
-    this.modalChip(card, -160, T + 150, 148, t('setup.computer'), s.mode === 'cpu', () => { s.mode = 'cpu'; reopen() })
-    this.modalChip(card, 0, T + 150, 148, t('setup.local'), s.mode === 'local', () => { s.mode = 'local'; reopen() })
-    this.modalChip(card, 160, T + 150, 148, t('setup.online'), online, () => { s.mode = 'online'; reopen() })
-
-    if (online) {
-      // Quick match fills empty seats with bots, so every option starts fast.
-      // 2v2 pools only with other team seekers (server keeps the queues apart).
-      const rows = [
-        [t('net.quick'), true, { mode: 'quick', maxPlayers: 4 }],
-        [t('net.teams'), false, { mode: 'quick', maxPlayers: 4, teams: true }],
-        [t('net.solo'), false, { mode: 'solo', maxPlayers: 2 }],
-        [t('net.create'), false, { mode: 'create', maxPlayers: 2 }],
-      ]
-      rows.forEach(([label, primary, data], i) => {
-        this.modalButton(card, 0, T + 236 + i * 84, 300, label, primary, () => {
-          this.closeModal(); this.goTo('NetLudo', data)
-        })
-      })
-      this.modalButton(card, 0, T + 236 + rows.length * 84, 300, t('net.joinCode'), false, () => {
-        this.openTextInput({
-          title: t('net.joinCode'), placeholder: '000000', maxLength: 6,
-          numeric: true, submit: t('net.joinCode'),
-          onSubmit: code => {
-            if (!/^\d{6}$/.test(code)) throw new Error(t('net.codePrompt'))
-            this.closeModal(); this.goTo('NetLudo', { mode: 'code', code })
-          },
-        })
-      })
-      return
-    }
-
-    this.modalLabel(card, T + 216, t('setup.opponents'))
-    ;[1, 2, 3].forEach((n, i) => {
-      this.modalChip(card, -96 + i * 96, T + 270, 80, `${n}`, s.opponents === n, () => { s.opponents = n; reopen() })
-    })
-    if (s.mode === 'cpu') {
-      this.modalLabel(card, T + 338, t('setup.difficulty'))
-      ;['easy', 'normal', 'hard'].forEach((d, i) => {
-        this.modalChip(card, -116 + i * 116, T + 392, 108, t(`common.${d}`), s.difficulty === d, () => { s.difficulty = d; reopen() })
-      })
-    }
-
-    this.modalButton(card, 0, cardH / 2 - 68, 300, t('setup.start'), true, () => {
-      this.closeModal()
-      const order = ['blue', 'green', 'yellow', 'red']
-      const players = {}
-      order.forEach((c, i) => {
-        if (i === 0) players[c] = 'human'
-        else if (i <= s.opponents) players[c] = s.mode === 'cpu' ? 'ai' : 'human'
-        else players[c] = 'off'
-      })
-      if (s.mode === 'cpu') store.setSetting('difficulty', s.difficulty)
-      this.goTo('Classic', { players, difficulty: s.difficulty })
-    })
   }
 
   // ---------- settings ----------
@@ -526,7 +461,7 @@ export class HomeScene extends UIScene {
 
     const toggleRow = (y, label, value, onOn, onOff) => {
       card.add(this.add.text(rowLabelX, y, label, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 20, color: '#e4dbff', fontStyle: 'bold',
+        fontFamily: GAME_FONT, fontSize: 20, color: '#e4dbff', fontStyle: 'bold',
       }).setOrigin(0, 0.5))
       this.modalChip(card, cardW / 2 - 128, y, 76, t('common.on'), value, onOn)
       this.modalChip(card, cardW / 2 - 46, y, 76, t('common.off'), !value, onOff)
@@ -578,14 +513,14 @@ export class HomeScene extends UIScene {
     const st = store.stats
     const winRate = st.games ? Math.round((st.wins / st.games) * 100) : 0
     card.add(this.add.text(0, T + 88, t('home.level', { n: store.level }), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 24, color: '#d7e7f5', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 24, color: '#d7e7f5', fontStyle: 'bold',
     }).setOrigin(.5))
     const barW = cardW - 120
     const pct = Phaser.Math.Clamp(store.xp / xpForLevel(store.level), 0, 1)
-    card.add(this.add.rectangle(0, T + 126, barW, 6, 0x0c192a))
-    card.add(this.add.rectangle(-barW / 2, T + 126, Math.max(2, barW * pct), 6, 0x62e5ba).setOrigin(0, .5))
+    card.add(this.add.rectangle(0, T + 126, barW, 14, 0x07162f).setStrokeStyle(2, 0x5590d2))
+    card.add(this.add.rectangle(-barW / 2 + 3, T + 126, Math.max(3, (barW - 6) * pct), 8, 0x70ef22).setOrigin(0, .5))
     card.add(this.add.text(0, T + 150, t('home.xpOf', { a: Math.round(store.xp), b: xpForLevel(store.level) }), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 16, color: '#9db6cb',
+      fontFamily: GAME_FONT, fontSize: 16, color: '#9db6cb',
     }).setOrigin(.5))
     const stats = [
       [t('stats.matches'), st.games, COLOR_HEX.blue],
@@ -597,18 +532,18 @@ export class HomeScene extends UIScene {
       const x = i % 2 ? 146 : -146
       const y = T + 240 + Math.floor(i / 2) * 138
       const panel = this.add.graphics()
-      panel.fillStyle(color, .08).fillRoundedRect(x - 134, y - 59, 268, 118, 18)
-      panel.lineStyle(1, color, .28).strokeRoundedRect(x - 134, y - 59, 268, 118, 18)
+      panel.fillStyle(color, .22).fillRoundedRect(x - 134, y - 59, 268, 118, 21)
+      panel.lineStyle(3, color, .72).strokeRoundedRect(x - 134, y - 59, 268, 118, 21)
       card.add(panel)
       card.add(this.add.text(x, y - 13, value.toLocaleString(), {
-        fontFamily: 'Verdana, sans-serif', fontSize: 42, color: '#f2f7ff', fontStyle: 'bold',
+        fontFamily: GAME_FONT, fontSize: 42, color: '#ffffff', fontStyle: 'bold', stroke: '#11244d', strokeThickness: 4,
       }).setOrigin(.5))
       card.add(this.add.text(x, y + 34, label, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#b8cede',
+        fontFamily: GAME_FONT, fontSize: 17, color: '#e5f1ff', fontStyle: 'bold',
       }).setOrigin(.5))
     })
     card.add(this.add.text(0, T + 478, `★  ${store.coins.toLocaleString()}`, {
-      fontFamily: 'Verdana, sans-serif', fontSize: 22, color: '#ffe3a0', fontStyle: 'bold',
+      fontFamily: GAME_FONT, fontSize: 22, color: '#ffe3a0', fontStyle: 'bold',
     }).setOrigin(.5))
     this.modalButton(card, 0, T + 564, 300, t('common.done'), true, () => this.closeModal())
   }
