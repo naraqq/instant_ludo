@@ -17,5 +17,16 @@ export const H = computeHeight()
 // everything down by this to stay centred on the taller canvas.
 export const HOME_V = Math.round((H - 1280) / 2)
 
+// The game is authored in a fixed W-wide space, but on high-DPI phones a
+// W-wide canvas stretched to fill the screen is upscaled and looks soft. We
+// render the canvas at RENDER_SCALE x the logical size and zoom every camera
+// by the same factor, so one game unit maps to RENDER_SCALE device-ish pixels
+// and text / board / sprites stay crisp. Capped at 2 - beyond that the memory
+// and fill cost isn't worth the barely-visible gain.
+export const RENDER_SCALE = (() => {
+  const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1
+  return Math.min(2, Math.max(1, Math.round(dpr * 2) / 2))
+})()
+
 export const MARGIN = 24
 export const CONTENT_W = W - MARGIN * 2
