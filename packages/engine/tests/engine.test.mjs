@@ -153,8 +153,9 @@ test('passing a gate offers a rune - inline or deferred', () => {
   d.pawns.find((p) => p.color === 'blue' && p.id === 0).steps = 5
   d = roll(d, 3)
   const moved = step(d, { type: 'move', pawnId: 0 })
-  assert.deepEqual(moved.state.pendingGate, { color: 'blue', pawnId: 0 })
+  assert.deepEqual(moved.state.pendingGate, { color: 'blue', pawnId: 0, index: 7 })
   const picked = step(moved.state, { type: 'pickGateRune', key: 'earth' })
+  assert.equal(picked.events[0].index, 7)
   assert.equal(picked.state.inventory.blue.earth, 1)
   assert.equal(picked.state.pendingGate, null)
 })
@@ -164,12 +165,12 @@ test("another player's roll does not resolve a hanging gate pick", () => {
   s.pawns.find((p) => p.color === 'blue' && p.id === 0).steps = 5
   s = roll(s, 3)
   s = step(s, { type: 'move', pawnId: 0 }).state // blue through the gate, turn -> red
-  assert.deepEqual(s.pendingGate, { color: 'blue', pawnId: 0 })
+  assert.deepEqual(s.pendingGate, { color: 'blue', pawnId: 0, index: 7 })
   assert.equal(currentColor(s), 'red')
 
   // red rolls: blue's pick must still be waiting, and blue got no rune
   const redRolled = step(s, { type: 'roll', value: 3 })
-  assert.deepEqual(redRolled.state.pendingGate, { color: 'blue', pawnId: 0 })
+  assert.deepEqual(redRolled.state.pendingGate, { color: 'blue', pawnId: 0, index: 7 })
   assert.equal(redRolled.events.some((e) => e.t === 'runePicked'), false)
   assert.deepEqual(redRolled.state.inventory.blue, { fire: 0, water: 0, earth: 0 })
 

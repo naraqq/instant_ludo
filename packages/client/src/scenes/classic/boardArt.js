@@ -10,6 +10,7 @@ import { TILE, BOARD_SIZE } from './constants.js'
 
 const START_OWNER = Object.fromEntries(Object.entries(START_INDEX).map(([c, i]) => [i, c]))
 const hx = (n) => '#' + ((n >>> 0) & 0xffffff).toString(16).padStart(6, '0')
+const rgba = (n, alpha) => `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
 
 // centre point (grid) each colour's home lane runs toward
 const HOME_DIR = { red: [1, 0], green: [0, 1], yellow: [-1, 0], blue: [0, -1] }
@@ -37,7 +38,7 @@ function star(ctx, cx, cy, outer, inner, points = 5) {
   ctx.closePath()
 }
 
-export function buildBoardCanvas() {
+export function buildBoardCanvas({ simple = false } = {}) {
   const S = 2
   const cell = TILE * S
   const size = BOARD_SIZE * S
@@ -73,44 +74,51 @@ export function buildBoardCanvas() {
     yg.addColorStop(0, hx(COLOR_LIGHT[color]))
     yg.addColorStop(0.55, hx(COLOR_HEX[color]))
     yg.addColorStop(1, hx(COLOR_DARK[color]))
-    ctx.fillStyle = yg
+    ctx.fillStyle = simple ? rgba(COLOR_HEX[color], 0.9) : yg
     ctx.fillRect(x, y, w, w)
-    // faint concentric crest watermark
-    ctx.save()
-    ctx.globalAlpha = 0.09
-    ctx.strokeStyle = '#ffffff'
-    ctx.lineWidth = 3 * S
-    for (let k = 1; k <= 3; k++) {
-      ctx.beginPath()
-      ctx.arc(x + w / 2, y + w / 2, k * 0.9 * cell, 0, 7)
-      ctx.stroke()
+    if (simple) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)'
+      ctx.lineWidth = 1.5 * S
+      ctx.strokeRect(x + S, y + S, w - 2 * S, w - 2 * S)
     }
-    ctx.restore()
-    // top sheen
-    const sheen = ctx.createLinearGradient(x, y, x, y + w * 0.5)
-    sheen.addColorStop(0, 'rgba(255,255,255,0.28)')
-    sheen.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = sheen
-    ctx.fillRect(x, y, w, w * 0.5)
+    // faint concentric crest watermark
+    if (!simple) {
+      ctx.save()
+      ctx.globalAlpha = 0.09
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 3 * S
+      for (let k = 1; k <= 3; k++) {
+        ctx.beginPath()
+        ctx.arc(x + w / 2, y + w / 2, k * 0.9 * cell, 0, 7)
+        ctx.stroke()
+      }
+      ctx.restore()
+      // top sheen
+      const sheen = ctx.createLinearGradient(x, y, x, y + w * 0.5)
+      sheen.addColorStop(0, 'rgba(255,255,255,0.28)')
+      sheen.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = sheen
+      ctx.fillRect(x, y, w, w * 0.5)
+    }
 
     // recessed holder
     const hxs = x + cell
     const hys = y + cell
     const hw = 4 * cell
     ctx.save()
-    ctx.shadowColor = 'rgba(0,0,0,0.35)'
-    ctx.shadowBlur = 12 * S
-    ctx.shadowOffsetY = 5 * S
+    ctx.shadowColor = simple ? 'rgba(20,30,50,0.14)' : 'rgba(0,0,0,0.35)'
+    ctx.shadowBlur = (simple ? 3 : 12) * S
+    ctx.shadowOffsetY = (simple ? 1 : 5) * S
     rr(ctx, hxs, hys, hw, hw, 22 * S)
-    ctx.fillStyle = hx(COLOR_SURFACE[color])
+    ctx.fillStyle = simple ? rgba(COLOR_DARK[color], 0.46) : hx(COLOR_SURFACE[color])
     ctx.fill()
     ctx.restore()
     rr(ctx, hxs, hys, hw, hw, 22 * S)
-    ctx.strokeStyle = 'rgba(255,255,255,0.95)'
-    ctx.lineWidth = 3 * S
+    ctx.strokeStyle = simple ? 'rgba(255,255,255,0.24)' : 'rgba(255,255,255,0.95)'
+    ctx.lineWidth = (simple ? 1.5 : 3) * S
     ctx.stroke()
     rr(ctx, hxs + 2 * S, hys + 2 * S, hw - 4 * S, hw - 4 * S, 20 * S)
-    ctx.strokeStyle = 'rgba(0,0,0,0.06)'
+    ctx.strokeStyle = simple ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'
     ctx.lineWidth = 2 * S
     ctx.stroke()
     // 4 sockets
@@ -119,9 +127,10 @@ export function buildBoardCanvas() {
     for (const px of cols) {
       for (const py of rows) {
         ctx.beginPath()
-        ctx.ellipse(px * cell, (py + 0.28) * cell, 20 * S, 9 * S, 0, 0, 7)
-        ctx.fillStyle = hx(COLOR_HEX[color])
-        ctx.globalAlpha = 0.16
+        if (simple) ctx.arc(px * cell, py * cell, 18 * S, 0, 7)
+        else ctx.ellipse(px * cell, (py + 0.28) * cell, 20 * S, 9 * S, 0, 0, 7)
+        ctx.fillStyle = simple ? hx(COLOR_DARK[color]) : hx(COLOR_HEX[color])
+        ctx.globalAlpha = simple ? 0.5 : 0.16
         ctx.fill()
         ctx.globalAlpha = 1
       }
@@ -129,34 +138,44 @@ export function buildBoardCanvas() {
   }
 
   // -------- track channel --------
-  ctx.fillStyle = 'rgba(150,163,190,0.10)'
+  ctx.fillStyle = simple ? 'rgba(150,163,190,0.03)' : 'rgba(150,163,190,0.10)'
   rr(ctx, 6 * cell, 0, 3 * cell, size, 4 * S)
   ctx.fill()
   rr(ctx, 0, 6 * cell, size, 3 * cell, 4 * S)
   ctx.fill()
 
   const drawTile = (gx, gy, fill, opts = {}) => {
-    const x = gx * cell + 2 * S
-    const y = gy * cell + 2 * S
-    const s = cell - 4 * S
-    rr(ctx, x, y, s, s, 9 * S)
+    const inset = (simple ? 0.5 : 2) * S
+    const x = gx * cell + inset
+    const y = gy * cell + inset
+    const s = cell - inset * 2
+    const radius = (simple ? 2 : 9) * S
+    rr(ctx, x, y, s, s, radius)
     ctx.save()
-    ctx.shadowColor = 'rgba(30,40,70,0.18)'
-    ctx.shadowBlur = 4 * S
-    ctx.shadowOffsetY = 2 * S
+    ctx.shadowColor = simple ? 'rgba(30,40,70,0.06)' : 'rgba(30,40,70,0.18)'
+    ctx.shadowBlur = (simple ? 0 : 4) * S
+    ctx.shadowOffsetY = simple ? 0 : 2 * S
     ctx.fillStyle = fill
     ctx.fill()
     ctx.restore()
+    if (simple) {
+      rr(ctx, x, y, s, s, radius)
+      ctx.strokeStyle = 'rgba(107,125,154,0.22)'
+      ctx.lineWidth = S
+      ctx.stroke()
+    }
     // top highlight
-    const hl = ctx.createLinearGradient(x, y, x, y + s)
-    hl.addColorStop(0, 'rgba(255,255,255,0.5)')
-    hl.addColorStop(0.5, 'rgba(255,255,255,0)')
-    hl.addColorStop(1, 'rgba(0,0,0,0.06)')
-    rr(ctx, x, y, s, s, 9 * S)
-    ctx.fillStyle = hl
-    ctx.fill()
+    if (!simple) {
+      const hl = ctx.createLinearGradient(x, y, x, y + s)
+      hl.addColorStop(0, 'rgba(255,255,255,0.5)')
+      hl.addColorStop(0.5, 'rgba(255,255,255,0)')
+      hl.addColorStop(1, 'rgba(0,0,0,0.06)')
+      rr(ctx, x, y, s, s, radius)
+      ctx.fillStyle = hl
+      ctx.fill()
+    }
     if (opts.stroke) {
-      rr(ctx, x + 0.5 * S, y + 0.5 * S, s - S, s - S, 8 * S)
+      rr(ctx, x + 0.5 * S, y + 0.5 * S, s - S, s - S, Math.max(S, radius - S))
       ctx.strokeStyle = opts.stroke
       ctx.lineWidth = 2 * S
       ctx.stroke()
@@ -168,7 +187,7 @@ export function buildBoardCanvas() {
     const owner = START_OWNER[i]
     const safe = SAFE_STOPS.has(i)
     if (owner) {
-      drawTile(gx, gy, hx(COLOR_HEX[owner]), { stroke: 'rgba(255,255,255,0.35)' })
+      drawTile(gx, gy, simple ? rgba(COLOR_HEX[owner], 0.96) : hx(COLOR_HEX[owner]), { stroke: 'rgba(255,255,255,0.35)' })
     } else if (safe) {
       drawTile(gx, gy, hx(BOARD_PALETTE.safe))
       // soft pad + crisp star
@@ -176,10 +195,10 @@ export function buildBoardCanvas() {
       const cy2 = (gy + 0.5) * cell
       ctx.beginPath()
       ctx.arc(cx2, cy2, 14 * S, 0, 7)
-      ctx.fillStyle = 'rgba(255,255,255,0.6)'
+      ctx.fillStyle = simple ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.6)'
       ctx.fill()
       star(ctx, cx2, cy2, 10 * S, 4.4 * S)
-      ctx.fillStyle = '#5b667d'
+      ctx.fillStyle = simple ? '#7d8799' : '#5b667d'
       ctx.fill()
     } else {
       drawTile(gx, gy, hx(BOARD_PALETTE.track))
@@ -190,9 +209,10 @@ export function buildBoardCanvas() {
   for (const color of COLORS) {
     const [dx, dy] = HOME_DIR[color]
     HOME_LANES[color].forEach(([gx, gy]) => {
-      drawTile(gx, gy, hx(COLOR_HEX[color]))
+      drawTile(gx, gy, simple ? rgba(COLOR_HEX[color], 0.96) : hx(COLOR_HEX[color]))
       const cx2 = (gx + 0.5) * cell
       const cy2 = (gy + 0.5) * cell
+      if (simple) return
       ctx.save()
       ctx.translate(cx2, cy2)
       ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2)
@@ -224,30 +244,32 @@ export function buildBoardCanvas() {
     const g = ctx.createLinearGradient(a[0] * cell, a[1] * cell, C, C)
     g.addColorStop(0, hx(COLOR_HEX[color]))
     g.addColorStop(1, hx(COLOR_LIGHT[color]))
-    ctx.fillStyle = g
+    ctx.fillStyle = simple ? hx(COLOR_HEX[color]) : g
     ctx.fill()
   }
   // raised medallion
-  ctx.save()
-  ctx.shadowColor = 'rgba(0,0,0,0.4)'
-  ctx.shadowBlur = 16 * S
-  ctx.shadowOffsetY = 4 * S
-  ctx.beginPath()
-  ctx.arc(C, C, 0.9 * cell, 0, 7)
-  const med = ctx.createRadialGradient(C - 6 * S, C - 8 * S, 4 * S, C, C, cell)
-  med.addColorStop(0, '#fff7dd')
-  med.addColorStop(1, '#e8b64a')
-  ctx.fillStyle = med
-  ctx.fill()
-  ctx.restore()
-  ctx.beginPath()
-  ctx.arc(C, C, 0.9 * cell, 0, 7)
-  ctx.strokeStyle = '#c9902f'
-  ctx.lineWidth = 3 * S
-  ctx.stroke()
-  star(ctx, C, C, 0.5 * cell, 0.22 * cell)
-  ctx.fillStyle = '#8a5a12'
-  ctx.fill()
+  if (!simple) {
+    ctx.save()
+    ctx.shadowColor = 'rgba(0,0,0,0.4)'
+    ctx.shadowBlur = 16 * S
+    ctx.shadowOffsetY = 4 * S
+    ctx.beginPath()
+    ctx.arc(C, C, 0.9 * cell, 0, 7)
+    const med = ctx.createRadialGradient(C - 6 * S, C - 8 * S, 4 * S, C, C, cell)
+    med.addColorStop(0, '#fff7dd')
+    med.addColorStop(1, '#e8b64a')
+    ctx.fillStyle = med
+    ctx.fill()
+    ctx.restore()
+    ctx.beginPath()
+    ctx.arc(C, C, 0.9 * cell, 0, 7)
+    ctx.strokeStyle = '#c9902f'
+    ctx.lineWidth = 3 * S
+    ctx.stroke()
+    star(ctx, C, C, 0.5 * cell, 0.22 * cell)
+    ctx.fillStyle = '#8a5a12'
+    ctx.fill()
+  }
 
   // outer frame
   ctx.restore() // undo clip

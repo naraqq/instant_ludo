@@ -74,12 +74,12 @@ function respawnBonusRune(s) {
 // someone else's still-pending pick.
 function autoResolveGate(s, events) {
   if (!s.pendingGate) return
-  const { color } = s.pendingGate
+  const { color, index } = s.pendingGate
   let key
   ;[key, s.rng] = rngPick(s.rng, GATE_RUNES)
   grantRune(s, color, key)
   s.pendingGate = null
-  events.push({ t: 'runePicked', color, key, deferred: true, auto: true })
+  events.push({ t: 'runePicked', color, key, index, deferred: true, auto: true })
 }
 
 // ---- the no-legal-move / end-of-turn plumbing, shared by roll and move ----
@@ -193,11 +193,13 @@ function doMove(s, events, pawnId, gateRune) {
     events.push({ t: 'gate', color: mover, pawnId, index: gate, picker: roller })
     if (gateRune && GATE_RUNES.includes(gateRune)) {
       grantRune(s, roller, gateRune)
-      events.push({ t: 'runePicked', color: roller, key: gateRune, deferred: false })
+      events.push({ t: 'runePicked', color: roller, key: gateRune, index: gate, deferred: false })
     } else {
       // a hanging pick from another seat can't ride across a second gate pass
       if (s.pendingGate && s.pendingGate.color !== roller) autoResolveGate(s, events)
-      s.pendingGate = assist ? { color: roller, pawnId, pawnColor: mover } : { color: roller, pawnId }
+      s.pendingGate = assist
+        ? { color: roller, pawnId, pawnColor: mover, index: gate }
+        : { color: roller, pawnId, index: gate }
     }
   }
 
@@ -298,10 +300,10 @@ function doUsePower(s, events, key, value) {
 function doPickGateRune(s, events, key) {
   if (!s.pendingGate) return fail(s, 'no gate pick pending')
   if (!GATE_RUNES.includes(key)) return fail(s, 'unknown rune')
-  const { color } = s.pendingGate
+  const { color, index } = s.pendingGate
   grantRune(s, color, key)
   s.pendingGate = null
-  events.push({ t: 'runePicked', color, key, deferred: true })
+  events.push({ t: 'runePicked', color, key, index, deferred: true })
   return { state: s, events }
 }
 

@@ -85,8 +85,6 @@ export class ClassicScene extends UIScene {
     // shown on the bottom bar, in the gate picker and dropping from a gate.
     ;['fire', 'water', 'earth'].forEach((type) =>
       this.load.image(`power-${type}`, `assets/sprites/power-${type}.png`))
-    // the "+1" bonus-roll rune, scattered on the board
-    this.load.image('rune-bonus', 'assets/sprites/rune-bonus.png')
   }
 
   create() {

@@ -1,12 +1,12 @@
-// Tiny synth SFX bank - no audio assets, everything is generated with an
-// OscillatorNode so the bundle stays asset-free. Respects the persisted
-// sound/haptics settings from the store.
+// Lightweight SFX manager. Most cues are synthesized; the dice roll uses the
+// supplied recording. Everything respects the persisted sound/haptics setting.
 
 import { store } from './store.js'
 
 class AudioManager {
   constructor() {
     this.ctx = null
+    this.rollAudio = null
   }
 
   // Must be called from inside a user gesture (pointerdown) at least once so
@@ -18,6 +18,12 @@ class AudioManager {
       this.ctx = new Ctor()
     }
     if (this.ctx.state === 'suspended') this.ctx.resume()
+    if (!this.rollAudio && window.Audio) {
+      this.rollAudio = new window.Audio('/dice_rolling.mp3')
+      this.rollAudio.preload = 'auto'
+      this.rollAudio.volume = 0.48
+      this.rollAudio.playbackRate = 2
+    }
   }
 
   get on() {
@@ -57,8 +63,21 @@ class AudioManager {
   }
 
   tap() { this.tone(520, { dur: 0.07, type: 'triangle', gain: 0.1 }) }
-  roll() { this.tone(180, { dur: 0.28, type: 'square', gain: 0.08, slideTo: 90 }) }
+  roll() {
+    if (!this.on) return
+    const audio = this.rollAudio
+    if (!audio) { this.tone(180, { dur: 0.28, type: 'square', gain: 0.08, slideTo: 90 }); return }
+    audio.pause()
+    audio.currentTime = 0
+    audio.play().catch(() => this.tone(180, { dur: 0.28, type: 'square', gain: 0.08, slideTo: 90 }))
+  }
+  stopRoll() {
+    if (!this.rollAudio) return
+    this.rollAudio.pause()
+    this.rollAudio.currentTime = 0
+  }
   land(value) {
+    this.stopRoll()
     this.tone(340 + value * 30, { dur: 0.14, type: 'triangle', gain: 0.14 })
     this.tone(180, { dur: 0.1, type: 'sine', gain: 0.1, delay: 0.02 })
   }
@@ -74,6 +93,11 @@ class AudioManager {
   rune() {
     this.tone(880, { dur: 0.1, type: 'triangle', gain: 0.12 })
     this.tone(1320, { dur: 0.12, type: 'triangle', gain: 0.1, delay: 0.06 })
+  }
+  gateReward(key) {
+    const root = { fire: 523, water: 659, earth: 440 }[key] || 523
+    this.tone(root, { dur: 0.14, type: 'triangle', gain: 0.055 })
+    this.tone(root * 1.25, { dur: 0.22, type: 'sine', gain: 0.045, delay: 0.07 })
   }
   power() { this.tone(220, { dur: 0.3, type: 'sawtooth', gain: 0.12, slideTo: 780 }) }
   capture() {

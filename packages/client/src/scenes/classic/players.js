@@ -49,7 +49,8 @@ export const PlayersMixin = {
 
   createCornerDice(color) {
     const pod = this.podFor(color)
-    const container = this.add.container(pod.dx, pod.dy).setDepth(34)
+    const baseScale = this.cornerDiceScale ?? 1
+    const container = this.add.container(pod.dx, pod.dy).setDepth(34).setScale(baseScale).setData('baseScale', baseScale)
     const glow = this.add.circle(0, 0, 39, 0xffffff, 0)
       .setStrokeStyle(2, COLOR_LIGHT[color], 1).setAlpha(0)
     glow.name = 'glow'
@@ -76,7 +77,8 @@ export const PlayersMixin = {
     extraCue.add([extraRing, extraPlus])
     container.add(extraCue)
     container.setVisible(false)
-    const zone = this.makeHitZone(pod.dx, pod.dy, 82, 82)
+    const zoneSize = 82 * Math.max(1, baseScale)
+    const zone = this.makeHitZone(pod.dx, pod.dy, zoneSize, zoneSize)
     this.addPressFeedback(zone, container, () => {
       if (!this.isBot(this.currentColor)) this.rollDice()
     })
@@ -287,6 +289,7 @@ export const PlayersMixin = {
     Object.entries(this.cornerDice).forEach(([key, dice]) => {
       const on = key === color && this.activeColors.includes(key)
       const c = dice.container
+      const baseScale = this.cornerDiceScale ?? 1
       this.tweens.killTweensOf(c)
       this.tweens.killTweensOf(dice.glow)
       // Once we're back to a plain roll, retire the fire power's second die.
@@ -299,15 +302,15 @@ export const PlayersMixin = {
       }
       if (!on) {
         if (c.visible) {
-          this.tweens.add({ targets: c, scale: 0.5, alpha: 0, duration: dur(DUR.fast), ease: EASE.out, onComplete: () => c.setVisible(false) })
+          this.tweens.add({ targets: c, scale: baseScale * 0.5, alpha: 0, duration: dur(DUR.fast), ease: EASE.out, onComplete: () => c.setVisible(false) })
         }
         return
       }
       if (!c.visible) {
-        c.setVisible(true).setScale(prefersReducedMotion ? 1 : 0.4).setAlpha(prefersReducedMotion ? 1 : 0)
-        this.tweens.add({ targets: c, scale: 1, alpha: bot ? 0.95 : 1, duration: dur(DUR.base), ease: EASE.pop })
+        c.setVisible(true).setScale(prefersReducedMotion ? baseScale : baseScale * 0.4).setAlpha(prefersReducedMotion ? 1 : 0)
+        this.tweens.add({ targets: c, scale: baseScale, alpha: bot ? 0.95 : 1, duration: dur(DUR.base), ease: EASE.pop })
       } else {
-        c.setAlpha(bot ? 0.95 : 1).setScale(1)
+        c.setAlpha(bot ? 0.95 : 1).setScale(baseScale)
       }
       // "hot dice": a lucky 6 is due for this player next roll
       const hot = this.phase === 'roll' && this.sixForced.has(key)

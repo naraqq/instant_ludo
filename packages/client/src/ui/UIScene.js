@@ -93,7 +93,7 @@ export class UIScene extends Phaser.Scene {
     })
   }
 
-  makeBackgroundTexture(key, topColor, bottomColor) {
+  makeBackgroundTexture(key, topColor, bottomColor, { stars = true } = {}) {
     if (this.textures.exists(key)) return
     const canvas = document.createElement('canvas')
     canvas.width = W
@@ -106,14 +106,16 @@ export class UIScene extends Phaser.Scene {
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, W, H)
 
-    for (let i = 0; i < 50; i++) {
-      const x = Phaser.Math.Between(0, W)
-      const y = Phaser.Math.Between(0, H * 0.6)
-      const r = Phaser.Math.FloatBetween(0.5, 2)
-      ctx.fillStyle = `rgba(255, 255, 255, ${Phaser.Math.FloatBetween(0.2, 0.9)})`
-      ctx.beginPath()
-      ctx.arc(x, y, r, 0, Math.PI * 2)
-      ctx.fill()
+    if (stars) {
+      for (let i = 0; i < 50; i++) {
+        const x = Phaser.Math.Between(0, W)
+        const y = Phaser.Math.Between(0, H * 0.6)
+        const r = Phaser.Math.FloatBetween(0.5, 2)
+        ctx.fillStyle = `rgba(255, 255, 255, ${Phaser.Math.FloatBetween(0.2, 0.9)})`
+        ctx.beginPath()
+        ctx.arc(x, y, r, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
 
     this.textures.addCanvas(key, canvas)

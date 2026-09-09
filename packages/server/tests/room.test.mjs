@@ -69,6 +69,34 @@ test('only the player whose turn it is may act', async () => {
   a.leave(); b.leave()
 })
 
+test('human timeout enables persistent auto mode until that player taps', async () => {
+  const room = await colyseus.createRoom('ludo', { maxPlayers: 2, botThinkMs: 999_999 })
+  const a = await colyseus.connectTo(room, { name: 'A' })
+  const b = await colyseus.connectTo(room, { name: 'B' })
+  quiet(a); quiet(b)
+  room.startMatch()
+  await wait(40)
+
+  const color = currentColor(room.engine)
+  const activeClient = room.state.seats.get(a.sessionId).color === color ? a : b
+  const seat = room.seatByColor(color)
+  assert.equal(room.state.turnDuration, 10_000)
+
+  // Guarantee a legal move so the same player's auto-controlled turn remains active.
+  room.engine.forcedValue = 6
+  room.autoPlay(color)
+  assert.equal(seat.auto, true)
+  assert.equal(currentColor(room.engine), color)
+  assert.equal(room.engine.phase, 'move')
+  assert.equal(room.state.turnDuration, 999_999)
+
+  activeClient.send('manual', {})
+  await wait(60)
+  assert.equal(seat.auto, false)
+  assert.equal(room.state.turnDuration, 10_000)
+  a.leave(); b.leave()
+})
+
 test('human + bot turns advance the one authoritative game', async () => {
   const room = await colyseus.createRoom('ludo', { maxPlayers: 4, botThinkMs: 3, turnSeconds: 1 })
   const a = await colyseus.connectTo(room, { name: 'A' })
@@ -109,7 +137,7 @@ test('a gate rune can be picked after the turn has moved on, and no one else res
   a.send('action', { type: 'move', pawnId: 0 })
   await wait(80)
 
-  assert.deepEqual(room.engine.pendingGate, { color: aColor, pawnId: 0 })
+  assert.deepEqual(room.engine.pendingGate, { color: aColor, pawnId: 0, index: 7 })
   assert.notEqual(currentColor(room.engine), aColor, 'turn has passed to B')
 
   // B rolls a 6 and keeps the turn - B's roll must not touch A's hanging pick
@@ -118,7 +146,7 @@ test('a gate rune can be picked after the turn has moved on, and no one else res
   await wait(60)
   assert.equal(currentColor(room.engine), room.state.seats.get(b.sessionId).color)
   assert.equal(room.engine.phase, 'move')
-  assert.deepEqual(room.engine.pendingGate, { color: aColor, pawnId: 0 })
+  assert.deepEqual(room.engine.pendingGate, { color: aColor, pawnId: 0, index: 7 })
   assert.equal(room.engine.inventory[aColor].water, 0)
 
   // A picks it out of band while it is firmly B's turn

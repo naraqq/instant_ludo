@@ -3,7 +3,6 @@ import { Room, ServerError, matchMaker } from 'colyseus'
 import {
   createGame, reduce, publicView, currentColor, legalMoves,
   chooseAiMove, chooseAiPower, bestForcedDice, aiState,
-  TURN_SECONDS, MOVE_SECONDS,
 } from '@ludo/engine'
 import { LudoState, Seat } from './schema/LudoState.js'
 import { verifyTicket, playfabEnabled, awardMatchRewards } from '../playfab.js'
@@ -14,6 +13,7 @@ const SEAT_COLORS = ['blue', 'red', 'green', 'yellow']
 const SEAT_COLORS_2P = ['blue', 'green']
 const LOBBY_WAIT_MS = 12_000    // start with bots if the room isn't full by now
 const BOT_THINK_MS = 900        // pause before a bot acts, so play is watchable
+const HUMAN_RESPONSE_MS = 10_000
 const RECONNECT_SECONDS = 45
 
 export class LudoRoom extends Room {
@@ -22,6 +22,7 @@ export class LudoRoom extends Room {
 
   messages = {
     action: (client, message) => this.handleAction(client, message),
+    manual: (client) => this.reclaimManualControl(client),
     start: (client) => this.hostStart(client),
   }
 
@@ -72,7 +73,7 @@ export class LudoRoom extends Room {
 
   turnMs() {
     if (this.turnSecondsOverride) return this.turnSecondsOverride * 1000
-    return (this.engine?.phase === 'move' ? MOVE_SECONDS : TURN_SECONDS) * 1000
+    return HUMAN_RESPONSE_MS
   }
 
   // Verify the PlayFab ticket (if PlayFab is configured); otherwise allow as a
@@ -197,6 +198,8 @@ export class LudoRoom extends Room {
     if (!this.engine || this.engine.phase === 'gameover') return
     const seat = this.state.seats.get(client.sessionId)
     if (!seat) return
+    // A real interaction always gives control back to the human.
+    if (!seat.bot && seat.auto) this.reclaimManualControl(client)
 
     // A gate rune pick belongs to whoever passed the gate and is resolved out of
     // band - the turn may already have moved on while their picker floats.
@@ -219,6 +222,14 @@ export class LudoRoom extends Room {
     if (result?.error) client.send('rejected', { error: result.error })
   }
 
+  reclaimManualControl(client) {
+    const seat = this.state.seats.get(client.sessionId)
+    if (!seat || seat.bot || !seat.auto) return
+    seat.auto = false
+    // If this is still their decision, restart the full response window.
+    if (this.engine && seat.color === currentColor(this.engine)) this.armClock()
+  }
+
   applyAction(action) {
     const { state, events, error } = reduce(this.engine, action)
     if (error) return { error }
@@ -232,6 +243,10 @@ export class LudoRoom extends Room {
     const over = this.engine.phase === 'gameover'
     this.state.phase = over ? 'gameover' : 'playing'
     this.state.currentColor = over ? '' : currentColor(this.engine)
+    if (over) {
+      this.state.turnDeadline = 0
+      this.state.turnDuration = 0
+    }
     this.state.winningTeam = this.engine.winningTeam ?? -1
     this.state.gameJson = JSON.stringify(publicView(this.engine))
     if (events && events.length) {
@@ -250,21 +265,22 @@ export class LudoRoom extends Room {
 
     const color = currentColor(this.engine)
     const seat = this.seatByColor(color)
-    const auto = !seat || seat.bot || !seat.connected
+    const auto = !seat || seat.bot || seat.auto || !seat.connected
     const ms = auto ? this.botThinkMs : this.turnMs()
 
     this.state.currentColor = color
     // room-elapsed ms (matches the client SDK's room.clock.serverNow()), not the
     // epoch clock.currentTime
     this.state.turnDeadline = this.clock.elapsedTime + ms
+    this.state.turnDuration = ms
     this.turnTimer = this.clock.setTimeout(() => this.autoPlay(color), ms)
   }
 
   autoPlay(color) {
     if (!this.engine || currentColor(this.engine) !== color) return
     const seat = this.seatByColor(color)
-    if (!seat || seat.bot || !seat.connected) this.botStep(color)
-    else this.applyAction({ type: 'timeout' })
+    if (seat && !seat.bot && seat.connected && !seat.auto) seat.auto = true
+    this.botStep(color)
   }
 
   botStep(color) {

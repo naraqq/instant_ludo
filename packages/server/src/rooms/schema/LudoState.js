@@ -9,6 +9,8 @@ export const Seat = schema({
   playFabId: t.string().default(''),
   bot: t.boolean().default(false),
   connected: t.boolean().default(true),
+  // Human seat temporarily controlled by the server after an inactivity timeout.
+  auto: t.boolean().default(false),
 })
 
 export const LudoState = schema({
@@ -27,6 +29,8 @@ export const LudoState = schema({
   currentColor: t.string().default(''),
   // room-clock time (ms) the current turn expires at
   turnDeadline: t.number().default(0),
+  // authoritative length of the currently armed clock (ms)
+  turnDuration: t.number().default(0),
   // JSON.stringify(publicView(engineState)) — the whole board
   gameJson: t.string().default(''),
   // seats keyed by Colyseus sessionId

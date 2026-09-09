@@ -94,7 +94,6 @@ export const CombatMixin = {
   kickImpact(attackerColor, at, nx, ny, spin, victimColor, victimView, home, onDone) {
     sfx.capture()
     sfx.buzz?.([14, 36, 16])
-    this.cameras.main.shake(dur(130), 0.007)
 
     const shock = this.add.circle(at.x, at.y, 10, 0xffffff, 0).setStrokeStyle(6, 0xffffff, 0.95).setDepth(58)
     this.tweens.add({ targets: shock, radius: 54, alpha: 0, duration: dur(300), ease: EASE.out, onComplete: () => shock.destroy() })

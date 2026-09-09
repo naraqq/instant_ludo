@@ -112,6 +112,62 @@ export function powerRuneTexture(scene, key) {
   return id
 }
 
+// Programmatic extra-roll badge used on the board and in the power legend.
+// The repeat arrow explains the effect without looking like currency or loot.
+export function bonusRuneTexture(scene) {
+  const id = 'bonus-rune-repeat'
+  if (scene.textures.exists(id)) return id
+  const S = 2
+  const size = 48 * S
+  const cv = document.createElement('canvas')
+  cv.width = cv.height = size
+  const ctx = cv.getContext('2d')
+  const c = size / 2
+  const radius = 19 * S
+
+  // Clean ivory chip with a strong gold outline, neutral against every player color.
+  ctx.beginPath()
+  ctx.arc(c, c, radius, 0, Math.PI * 2)
+  ctx.fillStyle = '#fffaf0'
+  ctx.fill()
+  ctx.strokeStyle = '#e2a915'
+  ctx.lineWidth = 3 * S
+  ctx.stroke()
+
+  // Circular arrow: one more trip to the dice.
+  const arrowRadius = 14.5 * S
+  const start = -Math.PI * 0.78
+  const end = Math.PI * 1.02
+  ctx.beginPath()
+  ctx.arc(c, c, arrowRadius, start, end)
+  ctx.strokeStyle = '#e2a915'
+  ctx.lineWidth = 3.25 * S
+  ctx.lineCap = 'round'
+  ctx.stroke()
+  const ax = c + Math.cos(end) * arrowRadius
+  const ay = c + Math.sin(end) * arrowRadius
+  ctx.save()
+  ctx.translate(ax, ay)
+  ctx.rotate(end + Math.PI / 2)
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  ctx.lineTo(-4.5 * S, -3.5 * S)
+  ctx.lineTo(4 * S, -4 * S)
+  ctx.closePath()
+  ctx.fillStyle = '#e2a915'
+  ctx.fill()
+  ctx.restore()
+
+  ctx.font = `900 ${16 * S}px Arial Black, Verdana, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = '#4b3500'
+  ctx.fillText('+1', c, c + S)
+
+  scene.textures.addCanvas(id, cv)
+  return id
+}
+
 export const PowersMixin = {
   // Three fixed power slots. The icon is the button; a red corner badge shows
   // how many of that power you hold (hidden at zero, like every other game).
@@ -201,7 +257,7 @@ export const PowersMixin = {
   // A power-specific burst on the acting player's own pod / dice tray so every
   // seat can see what just happened - two dice for fire's double, a locked-on
   // face for water's pick, an earthen pulse for the shield.
-  playPowerEffect(color, key) {
+  playPowerEffect(color, key, value) {
     if (key === 'air') return
     // The local player already gets the picker / button feedback; this burst is
     // so the OTHER seats can see what a bot or hot-seat rival just did.
@@ -247,7 +303,7 @@ export const PowersMixin = {
     } else if (key === 'water') {
       // the chosen face, with a reticle snapping onto it
       const g = this.add.graphics().setPosition(x, y).setDepth(71).setScale(0.15)
-      drawRestingDice(g, this.forcedDiceValue || 6)
+      drawRestingDice(g, value ?? this.forcedDiceValue ?? 6)
       this.tweens.add({ targets: g, scale: 0.62, duration: dur(DUR.base), ease: EASE.pop })
       this.tweens.add({
         targets: g, y: y - 22, scale: 0.3, alpha: 0,
@@ -495,16 +551,9 @@ export const PowersMixin = {
   createBonusRuneView(rune) {
     const { x, y } = this.getTrackPixel(rune.index)
     const c = this.add.container(x, y).setDepth(18)
-    c.add(this.add.ellipse(2, 14, 24, 7, 0x000000, 0.3))
-    const icon = this.add.image(0, -2, 'rune-bonus')
-    icon.setScale(36 / icon.height)
+    c.add(this.add.ellipse(2, 13, 27, 7, 0x000000, 0.2))
+    const icon = this.add.image(0, -2, bonusRuneTexture(this)).setDisplaySize(36, 36)
     c.add(icon)
-    if (!prefersReducedMotion) {
-      this.tweens.add({
-        targets: c, y: y - 5, scale: 1.06,
-        duration: 900, yoyo: true, repeat: -1, ease: EASE.breathe,
-      })
-    }
     return c
   },
 
@@ -654,26 +703,27 @@ export const PowersMixin = {
       if (ownInventory && color === this.powerBarColor) this.flashPower(key)
       this.updatePowerButtons?.()
     }
-    if (prefersReducedMotion || !target) { flash(); return }
+    if (prefersReducedMotion || !target) { flash(); return Promise.resolve() }
     const tint = POWER_META[key]?.tint ?? COLOR_HEX[color]
+    const compact = Boolean(this._behind)
     this.popAt(at.x, at.y, tint)
     const ring = this.add.circle(at.x, at.y, 6, tint, 0).setStrokeStyle(4, tint, 0.9).setDepth(79)
-    this.tweens.add({ targets: ring, radius: 26, alpha: 0, duration: dur(300), ease: EASE.out, onComplete: () => ring.destroy() })
+    this.tweens.add({ targets: ring, radius: 26, alpha: 0, duration: dur(compact ? 180 : 300), ease: EASE.out, onComplete: () => ring.destroy() })
     const icon = this.add.image(at.x, at.y, powerRuneTexture(this, key)).setDepth(80).setAlpha(0)
     const s = 44 / icon.height
     icon.setScale(0)
-    this.tweens.chain({
+    return new Promise((resolve) => this.tweens.chain({
       targets: icon,
       tweens: [
-        { y: at.y - 20, scale: s * 1.15, alpha: 1, duration: dur(220), ease: EASE.pop },
-        { y: at.y - 6, duration: dur(120), ease: 'Sine.easeIn' },
+        { y: at.y - 20, scale: s * 1.15, alpha: 1, duration: dur(compact ? 90 : 220), ease: EASE.pop },
+        { y: at.y - 6, duration: dur(compact ? 40 : 120), ease: 'Sine.easeIn' },
         {
           x: target.x, y: target.y, scale: s * 0.32, alpha: 0,
-          duration: dur(360), ease: 'Cubic.easeInOut',
-          onComplete: () => { icon.destroy(); flash() },
+          duration: dur(compact ? 160 : 360), ease: 'Cubic.easeInOut',
+          onComplete: () => { icon.destroy(); flash(); resolve() },
         },
       ],
-    })
+    }))
   },
 
   showGatePicker(color, onPick) {
@@ -719,7 +769,9 @@ export const PowersMixin = {
       this._gatePickerDim = null
       this.gatePickerTimeout?.remove(false)
       this.gatePickerTimeout = null
-      sfx.power()
+      // Online waits for the authoritative reward event so every client hears
+      // its new chime in sync with the flight. Preserve local-mode audio.
+      if (!this.room) sfx.power()
       overlay.destroy()
       onPick(key)
     }
@@ -752,7 +804,10 @@ export const PowersMixin = {
         bg.setTexture('gate-tile')
         this.tweens.add({ targets: slot, scale: 1, duration: dur(90), ease: EASE.out })
       })
-      zone.on('pointerdown', () => { sfx.tap(); this.tweens.add({ targets: slot, scale: 0.94, duration: dur(70) }) })
+      zone.on('pointerdown', () => {
+        if (!this.room) sfx.tap()
+        this.tweens.add({ targets: slot, scale: 0.94, duration: dur(70) })
+      })
       zone.on('pointerup', () => choose(key))
       overlay.add(zone)
     })

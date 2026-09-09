@@ -8,7 +8,7 @@ import { sfx } from '../audio.js'
 import { COLOR_HEX, COLOR_DARK } from '@ludo/engine'
 import { drawRestingDice } from '../ui/dice3d.js'
 import { buildBoardCanvas } from './classic/boardArt.js'
-import { powerRuneTexture, POWER_META } from './classic/powers.js'
+import { powerRuneTexture, bonusRuneTexture, POWER_META } from './classic/powers.js'
 import { t, getLocale, setLocale, LOCALES, LOCALE_LABEL } from '../i18n.js'
 
 const FREE_COINS_AMOUNT = 5000
@@ -26,7 +26,6 @@ export class HomeScene extends UIScene {
 
   preload() {
     this.makeBackgroundTexture('bg-home', '#0b1526', '#17233d')
-    this.load.image('rune-bonus', 'assets/sprites/rune-bonus.png')
     ELEMENTS.forEach(({ key }) => {
       this.load.image(`hero-${key}`, `assets/sprites/pawn-${key}.png`)
       this.load.image(`hero-${key}-sm`, `assets/sprites/pawn-${key}-sm.png`)
@@ -293,7 +292,7 @@ export class HomeScene extends UIScene {
       { key: 'fire', tex: powerRuneTexture(this, 'fire'), name: POWER_META.fire.name, blurb: POWER_META.fire.blurb },
       { key: 'water', tex: powerRuneTexture(this, 'water'), name: POWER_META.water.name, blurb: POWER_META.water.blurb },
       { key: 'earth', tex: powerRuneTexture(this, 'earth'), name: POWER_META.earth.name, blurb: POWER_META.earth.blurb },
-      { key: 'air', tex: 'rune-bonus', name: 'EXTRA ROLL', blurb: t('home.powerAir') },
+      { key: 'air', tex: bonusRuneTexture(this), name: 'EXTRA ROLL', blurb: t('home.powerAir') },
     ]
     items.forEach(({ tex, name, blurb }, i) => {
       const x = -246 + i * 164

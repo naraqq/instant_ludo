@@ -1,8 +1,5 @@
-// The purely-visual dice tumble: the 3D die (and the fire power's mirrored second
-// die) leaping out of the corner tray and settling on a face. Shared by the
-// Classic scene (local roll) and the online scene (replaying a server roll) so
-// the two can never drift apart. Callers own every bit of game bookkeeping
-// (pity-six, phase changes, auto-moves) - this file only animates.
+// The purely-visual 3D die (and the fire power's mirrored second die) leaping
+// out of the corner tray and settling on a face. Callers own game bookkeeping.
 import { prefersReducedMotion } from '../../ui/tokens.js'
 import { sfx } from '../../audio.js'
 import { dicePose, drawDice, drawRestingDice } from '../../ui/dice3d.js'
@@ -21,10 +18,10 @@ export const DiceAnimMixin = {
     dice.face2.setVisible(doubled)
     dice.shadow2.setVisible(doubled)
     const spread = doubled ? 44 : 0
-    dice.face.setPosition(-spread, -1).setScale(1)
+    dice.face.setPosition(-spread, -1).setScale(1).setAngle(0)
     drawRestingDice(dice.face, rawValue)
     if (doubled) {
-      dice.face2.setPosition(spread, -1).setScale(1)
+      dice.face2.setPosition(spread, -1).setScale(1).setAngle(0)
       drawRestingDice(dice.face2, rawValue)
     }
   },
@@ -38,11 +35,12 @@ export const DiceAnimMixin = {
     if (!dice) return { stop() {} }
     dice.go?.setVisible(false)
     const tray = dice.container
+    const trayScale = this.cornerDiceScale ?? 1
     const spread = doubled ? 44 : 0
     dice.face2.setVisible(doubled)
     dice.shadow2.setVisible(doubled)
     this.tweens.killTweensOf(tray)
-    tray.setVisible(true).setAlpha(1).setScale(1).setAngle(0).setY((this.podFor?.(color) ?? POD[color]).dy)
+    tray.setVisible(true).setAlpha(1).setScale(trayScale).setAngle(0).setY((this.podFor?.(color) ?? POD[color]).dy)
     dice.glow.setVisible(false).setAlpha(0)
     sfx.buzz?.(10) // tap feedback; the roll whoosh fires when the real tumble starts
     const base = { ...dice.pose }
@@ -96,12 +94,13 @@ export const DiceAnimMixin = {
       if (doubled) dice.face2.setScale(1.28)
       this.tweens.add({ targets: [dice.face, dice.face2], scaleX: 1, scaleY: 1, duration: 240, ease: 'Back.easeOut' })
       this.popAt?.(t.x, t.y + 20, COLOR_HEX[color])
-      sfx.land?.(rawValue)
+      if (this.silentDiceEndpoints) sfx.stopRoll?.()
+      else sfx.land?.(rawValue)
       sfx.buzz?.(14)
       return new Promise((r) => this.time.delayedCall(260, r))
     }
-
     const tray = dice.container
+    const trayScale = this.cornerDiceScale ?? 1
     const trayY = (this.podFor?.(color) ?? POD[color]).dy
     const target = dicePose(rawValue)
     const start = { ...dice.pose }
@@ -119,7 +118,7 @@ export const DiceAnimMixin = {
     }
     this.tweens.killTweensOf(tray)
     this.tweens.killTweensOf(dice.glow)
-    tray.setVisible(true).setAlpha(1).setScale(1).setAngle(0).setY(trayY)
+    tray.setVisible(true).setAlpha(1).setScale(trayScale).setAngle(0).setY(trayY)
     dice.glow.setVisible(false).setAlpha(0).setScale(1)
     sfx.roll?.()
     sfx.buzz?.(12)
@@ -127,7 +126,8 @@ export const DiceAnimMixin = {
     const impact = () => {
       if (landed) return
       landed = true
-      sfx.land?.(rawValue)
+      if (this.silentDiceEndpoints) sfx.stopRoll?.()
+      else sfx.land?.(rawValue)
       sfx.buzz?.(rawValue === 6 ? 28 : 14)
       if (!prefersReducedMotion) {
         this.popAt(tray.x, tray.y + 20, rawValue === 6 || doubled ? 0xffd54d : COLOR_HEX[color])

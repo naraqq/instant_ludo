@@ -10,6 +10,7 @@ import { buildBoardCanvas } from './boardArt.js'
 
 export const BoardViewMixin = {
   createBackdrop() {
+    if (this.cleanBackdrop) return
     const g = this.add.graphics()
     g.fillStyle(0x060b22, 0.18)
     g.fillRect(0, 0, W, H)
@@ -55,15 +56,16 @@ export const BoardViewMixin = {
   createBoard() {
     this.boardLayer = this.add.container(0, 0).setDepth(2)
 
-    if (!this.textures.exists('board-v2')) {
-      this.textures.addCanvas('board-v2', buildBoardCanvas())
+    const boardTexture = this.simpleBoardStyle ? 'board-simple-flat' : 'board-v2'
+    if (!this.textures.exists(boardTexture)) {
+      this.textures.addCanvas(boardTexture, buildBoardCanvas({ simple: this.simpleBoardStyle }))
     }
     const cx = BOARD_X + BOARD_SIZE / 2
     const cy = BOARD_Y + BOARD_SIZE / 2
     // drop shadow so the board sits ON the arena
-    const shadow = this.add.image(cx, cy + 8, 'board-v2').setDisplaySize(BOARD_SIZE, BOARD_SIZE)
+    const shadow = this.add.image(cx, cy + 8, boardTexture).setDisplaySize(BOARD_SIZE, BOARD_SIZE)
       .setTint(0x000000).setAlpha(0.35)
-    const board = this.add.image(cx, cy, 'board-v2').setDisplaySize(BOARD_SIZE, BOARD_SIZE)
+    const board = this.add.image(cx, cy, boardTexture).setDisplaySize(BOARD_SIZE, BOARD_SIZE)
     // the online scene rotates the whole board so the local player sits bottom-left
     const rot = (this._boardRot | 0) % 4
     if (rot) { shadow.setAngle(rot * 90); board.setAngle(rot * 90) }
@@ -83,15 +85,19 @@ export const BoardViewMixin = {
       const x = c.x - w / 2
       const y = c.y - w / 2
       const g = this.add.graphics().setDepth(3).setAlpha(0)
-      g.fillStyle(COLOR_LIGHT[color], 0.3)
+      g.fillStyle(COLOR_LIGHT[color], this.simpleBoardStyle ? 0.12 : 0.3)
       g.fillRoundedRect(x + 4, y + 4, w - 8, w - 8, 24)
-      g.lineStyle(6, COLOR_LIGHT[color], 0.95)
+      g.lineStyle(this.simpleBoardStyle ? 3 : 6, COLOR_LIGHT[color], this.simpleBoardStyle ? 0.65 : 0.95)
       g.strokeRoundedRect(x + 5, y + 5, w - 10, w - 10, 22)
       this.quadFx[color] = g
     })
   },
 
   createBottomBar() {
+    if (this.plainBottomBar) {
+      this.createPowerButtons()
+      return
+    }
     this.makeRoundedRectTexture('bottom-bar', W + 40, 108, 0x1d3249, 0x101f32, 30, 0x3d5870)
     this.add.image(W / 2, BAR_Y + 26, 'bottom-bar').setAlpha(0.98).setDepth(38)
     this.add.rectangle(W / 2, BAR_Y - 28, W - 48, 3, 0xffffff, 0.12).setDepth(39)

@@ -250,7 +250,6 @@ export const TurnMixin = {
     if (youWon || !this.youColor) sfx.win()
     else sfx.lose()
     sfx.buzz(youWon ? [30, 40, 30, 40, 70] : 70)
-    this.cameras.main.shake(300, youWon ? 0.004 : 0.002)
     this.time.delayedCall(450, () => this.showVictoryOverlay(winner, youWon, ranking, reward))
   },
 

@@ -242,6 +242,33 @@ test('playPowerEffect fires for opponents, stays quiet for the local you and for
   assert.ok(spawns > 0)
 })
 
+test('opponent water effect displays the authoritative chosen value', () => {
+  const s = scene()
+  const drawn = []
+  const graphics = {
+    clear() { return this }, fillStyle() { return this }, fillRoundedRect() { return this },
+    fillGradientStyle() { return this },
+    lineStyle() { return this }, strokeRoundedRect() { return this }, fillCircle() { return this },
+    setPosition() { return this }, setDepth() { return this }, setScale() { return this }, destroy() {},
+  }
+  const chain = new Proxy(function () {}, { get: () => () => chain, apply: () => chain })
+  s.add = {
+    circle: () => chain,
+    graphics: () => graphics,
+    image: () => chain,
+    particles: () => chain,
+  }
+  s.textures = { exists: () => false }
+  s.cornerDice = { red: { container: { x: 600, y: 120 } } }
+  s.youColor = 'blue'
+  s.forcedDiceValue = 2
+  // Capture the selected face through the graphics calls made by drawRestingDice.
+  graphics.fillCircle = (x, y) => { drawn.push([x, y]); return graphics }
+
+  s.playPowerEffect('red', 'water', 5)
+  assert.equal(drawn.length, 15, 'the five-pip face came from the network event')
+})
+
 test('a move no longer waits on the gate pick - the turn plays straight on', () => {
   const s = scene()
   s.phase = 'move'
@@ -455,6 +482,8 @@ test('online join tolerates a room before its first schema arrives', () => {
 test('a new online match clears animation locks and old render references', () => {
   const s = new NetLudoScene()
   s.init({})
+  assert.equal(s.cornerDiceScale, 1.3)
+  assert.equal(s.silentDiceEndpoints, true)
   const run = s._run
   s._animating = true
   s.pawnViews.set({}, {})
@@ -470,6 +499,60 @@ test('a new online match clears animation locks and old render references', () =
   assert.equal(s._gatePickChoose, null)
 })
 
+test('online roll history appears only for consecutive rolls by one player', () => {
+  const s = new NetLudoScene()
+  s.init({})
+  let renders = 0
+  s.renderRollHistory = () => { renders++ }
+
+  s.recordRollHistory('blue', 6)
+  assert.deepEqual(s._rollHistory, { color: 'blue', values: [6] })
+  s.recordRollHistory('blue', 4)
+  assert.deepEqual(s._rollHistory, { color: 'blue', values: [6, 4] })
+
+  s.recordRollHistory('green', 2)
+  assert.deepEqual(s._rollHistory, { color: 'green', values: [2] })
+  assert.equal(renders, 3)
+})
+
+test('online roll history keeps only the five latest consecutive results', () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s.renderRollHistory = () => {}
+  ;[6, 6, 2, 5, 3, 4].forEach(value => s.recordRollHistory('yellow', value))
+  assert.deepEqual(s._rollHistory, { color: 'yellow', values: [6, 2, 5, 3, 4] })
+  s.resetRollHistory()
+  assert.deepEqual(s._rollHistory, { color: null, values: [] })
+})
+
+test('online timer uses the authoritative server duration', () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s.g = { phase: 'roll' }
+  s.room = {
+    state: { turnDeadline: 7000, turnDuration: 10_000 },
+    clock: { serverNow: () => 2000 },
+  }
+  let fraction
+  s.drawTimerArc = value => { fraction = value }
+  s.time = { addEvent: () => ({ remove() {} }) }
+  s.armTurnTimer()
+  assert.equal(fraction, 0.5)
+})
+
+test('one tap requests manual control only once while auto mode is active', () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s._connected = true
+  s.myColor = 'blue'
+  s.seats = { blue: { auto: true } }
+  const sent = []
+  s.room = { send: (...args) => sent.push(args) }
+  s.reclaimManualControl()
+  s.reclaimManualControl()
+  assert.deepEqual(sent, [['manual', {}]])
+})
+
 test('opponent water power never changes the local selected dice value', async () => {
   const s = new NetLudoScene()
   s.init({})
@@ -477,8 +560,44 @@ test('opponent water power never changes the local selected dice value', async (
   s.forcedDiceValue = 2
   s.pause = async () => {}
   s.playPowerEffect = () => {}
+  s.playPowerAnnouncement = async () => {}
   await s.playPowerUsed({ color: 'green', key: 'water', value: 6 })
   assert.equal(s.forcedDiceValue, 2)
+})
+
+test('online gate reward uses its authoritative gate and waits for the flight', async () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s.gatePos = index => ({ x: index, y: 99 })
+  let finish
+  let grant
+  s.animateGateGrant = (color, key, from) => {
+    grant = { color, key, from }
+    return new Promise(resolve => { finish = resolve })
+  }
+
+  let settled = false
+  const playback = s.playRunePicked({ color: 'green', key: 'earth', index: 21 })
+    .then(() => { settled = true })
+  assert.deepEqual(grant, { color: 'green', key: 'earth', from: { x: 21, y: 99 } })
+  assert.equal(settled, false)
+  finish()
+  await playback
+  assert.equal(settled, true)
+})
+
+test('another player picking a rune never closes the local gate picker', async () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s.myColor = 'blue'
+  s._gatePickOwner = 'blue'
+  s._gatePickChoose = () => {}
+  let closed = false
+  s.closeGatePicker = () => { closed = true }
+  s.gatePos = () => ({ x: 10, y: 20 })
+  s.animateGateGrant = async () => {}
+  await s.playRunePicked({ color: 'green', key: 'fire', index: 7 })
+  assert.equal(closed, false)
 })
 
 test('online inputs stop while disconnected; gate choices can be out of turn', () => {
@@ -497,6 +616,48 @@ test('online inputs stop while disconnected; gate choices can be out of turn', (
   assert.equal(sent.length, 1)
 })
 
+test('online mode automatically moves when there is exactly one legal pawn', () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s._connected = true
+  s.myColor = 'blue'
+  s.g = { colors: ['blue', 'green'], current: 0, phase: 'move', dice: 3, raw: 3 }
+  s.phase = 'move'
+  s.pawns = [
+    { color: 'blue', id: 0, steps: 8, finished: false },
+    { color: 'blue', id: 1, steps: -1, finished: false },
+    { color: 'blue', id: 2, steps: -1, finished: false },
+    { color: 'blue', id: 3, steps: -1, finished: false },
+  ]
+  let callback
+  s.time = { delayedCall: (_delay, fn) => { callback = fn; return { remove() {} } } }
+  const moved = []
+  s.tryMovePawn = pawn => moved.push(pawn.id)
+
+  s.scheduleOnlyLegalMove()
+  assert.deepEqual(moved, [], 'waits briefly for the dice to settle')
+  callback()
+  assert.deepEqual(moved, [0])
+})
+
+test('online mode leaves pawn selection to the player when choices exist', () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s._connected = true
+  s.myColor = 'blue'
+  s.g = { colors: ['blue', 'green'], current: 0, phase: 'move', dice: 2, raw: 2 }
+  s.phase = 'move'
+  s.pawns = [
+    { color: 'blue', id: 0, steps: 8, finished: false },
+    { color: 'blue', id: 1, steps: 12, finished: false },
+  ]
+  let scheduled = false
+  s.time = { delayedCall: () => { scheduled = true } }
+
+  s.scheduleOnlyLegalMove()
+  assert.equal(scheduled, false)
+})
+
 test('queued event batches play against their matching authoritative state', async () => {
   const s = new NetLudoScene()
   s.init({})
@@ -509,4 +670,37 @@ test('queued event batches play against their matching authoritative state', asy
   await s._queue
   assert.deepEqual(seen, [1, 2])
   assert.equal(s._pendingBatches, 0)
+})
+
+test('online backlog never skips a remote pawn jump animation', async () => {
+  const s = new NetLudoScene()
+  s.init({})
+  const pawn = { color: 'green', id: 2, steps: 7, finished: false }
+  s.pawns = [pawn]
+  s._pendingBatches = 3
+  let animated
+  s.animatePawn = (moving, from, to, done) => { animated = { moving, from, to }; done() }
+  s.positionPawn = () => assert.fail('remote move must not snap into place')
+  s.reflowPawns = () => {}
+
+  await s.playMove({ color: 'green', pawnId: 2, to: 12 })
+  assert.deepEqual(animated, { moving: pawn, from: 7, to: 12 })
+  assert.equal(s._behind, false)
+})
+
+test('online rune pickup bypasses queued turn playback', async () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s.g = { turn: 1 }
+  const seen = []
+  s.playRunePicked = async ev => { seen.push(`rune:${ev.key}`) }
+  s.playEvents = async events => { seen.push(...events.map(ev => ev.t)) }
+  s.onStateChange = () => {}
+
+  s.enqueue({
+    events: [{ t: 'runePicked', color: 'blue', key: 'earth', index: 7 }, { t: 'turn', color: 'green' }],
+    game: { turn: 2 },
+  })
+  await s._queue
+  assert.deepEqual(seen, ['rune:earth', 'turn'])
 })

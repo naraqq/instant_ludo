@@ -11,15 +11,20 @@ import { GeometryMixin } from './classic/geometry.js'
 import { BoardViewMixin } from './classic/boardView.js'
 import { PlayersMixin } from './classic/players.js'
 import { PawnsMixin } from './classic/pawns.js'
-import { PowersMixin } from './classic/powers.js'
+import { PowersMixin, POWER_META, powerRuneTexture } from './classic/powers.js'
 import { CombatMixin } from './classic/combat.js'
 import { DiceAnimMixin } from './classic/diceAnim.js'
-import { TURN_SECONDS, MOVE_SECONDS, POD } from './classic/constants.js'
+import { POD, BOARD_Y } from './classic/constants.js'
 import { joinMatch, soloMatch, createRoom, joinByCode, tryReconnect, clearReconnect, stashReconnect } from '../net/room.js'
 
 export class NetLudoScene extends UIScene {
   constructor() {
     super('NetLudo')
+    this.simpleBoardStyle = true
+    this.cleanBackdrop = true
+    this.plainBottomBar = true
+    this.cornerDiceScale = 1.3
+    this.silentDiceEndpoints = true
     this.pawnViews = new Map()
     this.gateViews = []
     this.bonusRuneViews = new Map()
@@ -29,6 +34,7 @@ export class NetLudoScene extends UIScene {
   }
 
   init(data) {
+    this._autoMoveCall?.remove(false)
     this._run = (this._run || 0) + 1
     this._disposed = false
     this._connected = false
@@ -65,6 +71,10 @@ export class NetLudoScene extends UIScene {
     this._windup = null      // in-flight dice wind-up shake (local roll, pre-value)
     this._predicted = null     // { color, pawnId, to } move we've already animated
     this._moveAnimDone = null  // promise for that optimistic move animation
+    this._autoMoveCall = null  // delayed move when the local player has one legal choice
+    this._manualRequested = false
+    this._rollHistory = { color: null, values: [] }
+    this.rollHistoryView = null
   }
 
   // ---- shims the reused rendering mixins read ----
@@ -116,7 +126,7 @@ export class NetLudoScene extends UIScene {
   }
 
   preload() {
-    this.makeBackgroundTexture('bg-classic', '#101c30', '#1c3048')
+    this.makeBackgroundTexture('bg-net-flat', '#132238', '#132238', { stars: false })
     this.makeElementalEffectTextures()
     Object.entries(PAWN_ASSETS).forEach(([color, asset]) => {
       this.load.image(`pawn-${color}`, `assets/sprites/pawn-${asset}.png`)
@@ -124,13 +134,12 @@ export class NetLudoScene extends UIScene {
     })
     POWER_TYPES.forEach((type) => this.load.image(`rune-${type}`, `assets/sprites/rune-${type}.png`))
     ;['fire', 'water', 'earth'].forEach((k) => this.load.image(`power-${k}`, `assets/sprites/power-${k}.png`))
-    this.load.image('rune-bonus', 'assets/sprites/rune-bonus.png')
   }
 
   async create() {
     this.currentPlayer = 0
     this.captureCounts = Object.fromEntries(COLORS.map((c) => [c, 0]))
-    this.add.image(W / 2, H / 2, 'bg-classic')
+    this.add.image(W / 2, H / 2, 'bg-net-flat')
     this.createBackdrop()
     this.createTopBar()
     this.enterScene()
@@ -140,6 +149,7 @@ export class NetLudoScene extends UIScene {
     }).setOrigin(0.5).setDepth(50)
 
     this.events.once('shutdown', () => this.teardown())
+    this.input.on('pointerdown', this.reclaimManualControl, this)
 
     const run = this._run
     let joined
@@ -173,7 +183,9 @@ export class NetLudoScene extends UIScene {
     this._disposed = true
     this._connected = false
     this._turnTimer?.remove(false)
+    this._autoMoveCall?.remove(false); this._autoMoveCall = null
     this._windup?.stop?.()
+    this.input?.off('pointerdown', this.reclaimManualControl, this)
     for (const pawn of this.pawns) pawn._cancelMotion?.()
     clearReconnect()
     this.room?.leave().catch(() => {})
@@ -231,7 +243,7 @@ export class NetLudoScene extends UIScene {
     if (!map) return seats
     map.forEach((seat, sessionId) => {
       const key = seat.color || `pending:${sessionId}`
-      seats[key] = { name: seat.name, bot: seat.bot, connected: seat.connected, sessionId }
+      seats[key] = { name: seat.name, bot: seat.bot, connected: seat.connected, auto: seat.auto, sessionId }
       if (sessionId === this.room.sessionId && seat.color) this.myColor = seat.color
     })
     return seats
@@ -241,6 +253,8 @@ export class NetLudoScene extends UIScene {
     const s = this.room?.state
     if (!s?.seats) return
     this.seats = this.readSeats()
+    if (!this.seats[this.myColor]?.auto) this._manualRequested = false
+    this.syncAutoModeIndicators()
 
     if (s.phase === 'lobby' || !s.gameJson) {
       this.showLobby(s)
@@ -367,6 +381,8 @@ export class NetLudoScene extends UIScene {
     this.setPerspective()
     this.createBoard()
     this.createPlayers()
+    this.createAutoModeIndicators()
+    this.createRollHistoryView()
     this.createBottomBar()
     this.createGates()
     this.pawns.forEach((pawn) => {
@@ -400,6 +416,37 @@ export class NetLudoScene extends UIScene {
     this.updateShieldVisuals?.()
   }
 
+  createAutoModeIndicators() {
+    for (const color of this.activeColors) {
+      const badge = this.playerBadges?.[color]
+      if (!badge || badge.getByName('auto-mode')) continue
+      const indicator = this.add.container(29, -30).setName('auto-mode').setVisible(false)
+      const bg = this.add.graphics()
+      bg.fillStyle(0xffc83d, 1)
+      bg.fillRoundedRect(-23, -9, 46, 18, 9)
+      bg.lineStyle(1.5, 0xffefad, 1)
+      bg.strokeRoundedRect(-23, -9, 46, 18, 9)
+      indicator.add([bg, this.add.text(0, 0, 'AUTO', {
+        fontFamily: 'Arial Black, Verdana, sans-serif', fontSize: 9, color: '#493400', fontStyle: 'bold',
+      }).setOrigin(0.5)])
+      badge.add(indicator)
+    }
+    this.syncAutoModeIndicators()
+  }
+
+  syncAutoModeIndicators() {
+    for (const [color, badge] of Object.entries(this.playerBadges || {})) {
+      const automatic = Boolean(this.seats[color]?.auto && !this.seats[color]?.bot)
+      badge.getByName('auto-mode')?.setVisible(automatic)
+    }
+  }
+
+  reclaimManualControl() {
+    if (!this._connected || this._manualRequested || !this.seats[this.myColor]?.auto) return
+    this._manualRequested = true
+    this.room?.send('manual', {})
+  }
+
   // reconcile the "+1" rune views with the authoritative list
   syncBonusRunes() {
     const want = new Set((this.g.bonusRunes || []).map((r) => r.index))
@@ -423,6 +470,26 @@ export class NetLudoScene extends UIScene {
     this.refreshTurnUI?.()
     this.updateHeader()
     this.armTurnTimer()
+    this.scheduleOnlyLegalMove()
+  }
+
+  scheduleOnlyLegalMove() {
+    if (this._autoMoveCall || !this._connected || this.phase !== 'move'
+      || this.currentColor !== this.myColor || this._animating || this._windup) return
+    const moves = this.pawns.filter((pawn) =>
+      pawn.color === this.moverColor && this.canMove(pawn))
+    if (moves.length !== 1) return
+
+    // Let the roll settle before moving, then re-check the authoritative state:
+    // a reconnect or queued server event may have changed the turn meanwhile.
+    this._autoMoveCall = this.time.delayedCall(prefersReducedMotion ? 100 : 320, () => {
+      this._autoMoveCall = null
+      if (!this._connected || this.phase !== 'move' || this.currentColor !== this.myColor
+        || this._animating || this._windup) return
+      const currentMoves = this.pawns.filter((pawn) =>
+        pawn.color === this.moverColor && this.canMove(pawn))
+      if (currentMoves.length === 1) this.tryMovePawn(currentMoves[0])
+    })
   }
 
   updateHeader() {
@@ -443,13 +510,84 @@ export class NetLudoScene extends UIScene {
       .setColor(`#${(COLOR_HEX[mover] ?? COLOR_HEX[c] ?? 0xffffff).toString(16).padStart(6, '0')}`)
   }
 
+  // A quiet record of bonus rolls. A single roll needs no history; once the
+  // same player rolls again, show their most recent dice in a compact trail.
+  createRollHistoryView() {
+    this.rollHistoryView?.destroy()
+    this.rollHistoryView = this.add.container(0, 0).setDepth(45).setVisible(false)
+  }
+
+  recordRollHistory(color, value) {
+    const previous = this._rollHistory
+    const values = previous.color === color ? [...previous.values, value] : [value]
+    this._rollHistory = { color, values: values.slice(-5) }
+    this.renderRollHistory()
+  }
+
+  resetRollHistory() {
+    this._rollHistory = { color: null, values: [] }
+    this.renderRollHistory()
+  }
+
+  renderRollHistory() {
+    const view = this.rollHistoryView
+    if (!view) return
+    view.removeAll(true)
+    const { color, values } = this._rollHistory
+    if (!color || values.length < 2) { view.setVisible(false); return }
+
+    const accent = COLOR_HEX[color] ?? 0xffffff
+    const tray = this.cornerDice?.[color]?.container
+    const pod = this.podFor(color)
+    if (!tray) { view.setVisible(false); return }
+    const belowDie = pod.dir === 'up'
+    view.setPosition(tray.x, tray.y + (belowDie ? 58 : -58))
+
+    const width = 14 + values.length * 28
+    const bg = this.add.graphics()
+    bg.fillStyle(0x000000, 0.22)
+    bg.fillRoundedRect(-width / 2 + 2, -13, width, 30, 10)
+    bg.fillStyle(0x122238, 0.96)
+    bg.fillRoundedRect(-width / 2, -15, width, 30, 10)
+    bg.lineStyle(1.5, 0xffffff, 0.14)
+    bg.strokeRoundedRect(-width / 2, -15, width, 30, 10)
+    // A small player-coloured pointer visually connects the trail to its die.
+    bg.fillStyle(accent, 1)
+    if (belowDie) bg.fillTriangle(-6, -15, 6, -15, 0, -22)
+    else bg.fillTriangle(-6, 15, 6, 15, 0, 22)
+    view.add(bg)
+
+    const pipSets = {
+      1: [[0, 0]],
+      2: [[-1, -1], [1, 1]],
+      3: [[-1, -1], [0, 0], [1, 1]],
+      4: [[-1, -1], [1, -1], [-1, 1], [1, 1]],
+      5: [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]],
+      6: [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]],
+    }
+    const startX = -width / 2 + 7
+    values.forEach((value, i) => {
+      const die = this.add.graphics()
+      const x = startX + i * 28
+      const latest = i === values.length - 1
+      die.fillStyle(latest ? 0xffd45a : 0xf4f6f8, latest ? 1 : 0.82)
+      die.fillRoundedRect(x, -10, 22, 22, 6)
+      die.lineStyle(latest ? 1.5 : 1, latest ? 0xffec9a : 0xffffff, latest ? 1 : 0.35)
+      die.strokeRoundedRect(x, -10, 22, 22, 6)
+      die.fillStyle(latest ? 0x4b3500 : 0x34445a, 1)
+      for (const [px, py] of pipSets[value] || []) die.fillCircle(x + 11 + px * 5, 1 + py * 5, 1.7)
+      view.add(die)
+    })
+    view.setVisible(true).setAlpha(1)
+  }
+
   // countdown ring on the active pod, from the server's deadline
   serverNow() { return this.room?.clock?.serverNow?.() ?? this.room?.clock?.currentTime ?? 0 }
 
   armTurnTimer() {
     this._turnTimer?.remove(false)
     const deadline = this.room?.state?.turnDeadline || 0
-    const total = (this.g?.phase === 'move' ? MOVE_SECONDS : TURN_SECONDS) * 1000
+    const total = Number(this.room?.state?.turnDuration) || 10_000
     if (this.gameOver || this._animating || !deadline || deadline <= this.serverNow()) { this.drawTimerArc(0); return }
     const tick = () => {
       const left = (this.room?.state?.turnDeadline || 0) - this.serverNow()
@@ -473,7 +611,6 @@ export class NetLudoScene extends UIScene {
     if (this.currentColor !== this.myColor || this._animating || this._windup) return
     // you must choose the gate rune before rolling on - nudge the picker
     if (this._gatePickChoose) { this.bumpGatePicker?.(); return }
-    sfx.tap()
     const forced = this.forcedDiceValue
     this.forcedDiceValue = null
     this._animating = true
@@ -551,8 +688,19 @@ export class NetLudoScene extends UIScene {
 
   enqueue(batch) {
     if (this._disposed) return
-    const events = Array.isArray(batch) ? batch : batch.events
+    let events = Array.isArray(batch) ? batch : batch.events
     if (!Array.isArray(events)) return
+    // Gate choices are out-of-band server actions. Play their pickup the moment
+    // they arrive instead of making them wait behind another player's turn.
+    const liveRunePicks = this.g ? events.filter((ev) => ev.t === 'runePicked') : []
+    if (liveRunePicks.length) {
+      events = events.filter((ev) => ev.t !== 'runePicked')
+      for (const ev of liveRunePicks) {
+        const inventory = !Array.isArray(batch) ? batch.game?.inventory?.[ev.color] : null
+        if (inventory && this.g?.inventory) this.g.inventory[ev.color] = { ...inventory }
+        Promise.resolve(this.playRunePicked(ev)).catch((e) => console.warn('[net] rune pickup', e))
+      }
+    }
     const run = this._run
     this._pendingBatches++
     this._queue = this._queue.then(async () => {
@@ -575,9 +723,9 @@ export class NetLudoScene extends UIScene {
     })
   }
 
-  // more turns are already waiting behind the one we're playing - the opponent
-  // is acting faster than we can animate, so compress playback to catch up
-  get _behind() { return this._pendingBatches > 1 }
+  // Gameplay never switches to abbreviated playback. Every observer sees the
+  // same dice, pawn, capture, finish and bonus animations at full timing.
+  get _behind() { return false }
 
   async playEvents(events, run = this._run) {
     this._animating = true
@@ -586,11 +734,12 @@ export class NetLudoScene extends UIScene {
     this._pendingCue = null
     for (const ev of events) {
       if (this._disposed || run !== this._run) return
-      // hard cap per event so a stuck tween / promise can never freeze playback
+      // A generous backstop prevents a broken tween from freezing playback,
+      // without cutting off legitimate pawn paths or pickup animations.
       // eslint-disable-next-line no-await-in-loop
       await Promise.race([
         Promise.resolve(this.playEvent(ev)),
-        new Promise((r) => this.time.delayedCall(this._behind ? 400 : 3500, r)),
+        new Promise((r) => this.time.delayedCall(3500, r)),
       ])
     }
     if (this._disposed || run !== this._run) return
@@ -629,6 +778,7 @@ export class NetLudoScene extends UIScene {
         return this.pause(this._behind ? 40 : 500)
       case 'extraRoll':
       case 'turn':
+        if (ev.t === 'turn' && this._rollHistory?.color && ev.color !== this._rollHistory.color) this.resetRollHistory()
         if (ev.extra || ev.cause) this._pendingCue = { color: ev.color, reason: ev.extra || ev.cause }
         return this.pause(140)
       case 'noMove': return this.pause(360)
@@ -649,7 +799,9 @@ export class NetLudoScene extends UIScene {
     }
     const snap = this._snapRoll && ev.color === this.myColor
     this._snapRoll = false
-    return this.animateDiceTumble(ev.color, ev.raw, { doubled: Boolean(ev.doubled), instant: this._behind, snap })
+    return Promise.resolve(
+      this.animateDiceTumble(ev.color, ev.raw, { doubled: Boolean(ev.doubled), instant: this._behind, snap }),
+    ).then(() => this.recordRollHistory(ev.color, ev.raw))
   }
 
   playSixForfeit(ev) {
@@ -658,12 +810,50 @@ export class NetLudoScene extends UIScene {
   }
 
   playPowerUsed(ev) {
-    if (ev.color !== this.myColor) {
-      // Opponent water never changes the local player's selected face.
-      this.playPowerEffect?.(ev.color, ev.key)
+    // Opponent water never changes the local player's selected face. Its value
+    // is rendered directly from the event instead of touching local controls.
+    if (ev.color !== this.myColor && !this._behind) this.playPowerEffect?.(ev.color, ev.key, ev.value)
+    if (ev.key === 'earth') {
+      this.syncShields()
+      if (!this._behind) this.playShieldAura?.(ev.color)
     }
-    if (ev.key === 'earth') { this.syncShields(); this.playShieldAura?.(ev.color) }
-    return this.pause(ev.color === this.myColor ? 60 : 420)
+    return this.playPowerAnnouncement(ev)
+  }
+
+  playPowerAnnouncement(ev) {
+    const meta = POWER_META[ev.key]
+    if (!meta) return this.pause(120)
+    if (ev.color !== this.myColor) sfx.power()
+    const baseName = t(`home.power${ev.key[0].toUpperCase()}${ev.key.slice(1)}`)
+    const powerName = ev.key === 'water' && ev.value != null ? `${baseName} · ${ev.value}` : baseName
+    const message = t('net.powerUsed', { name: this.playerName(ev.color), power: powerName })
+    if (prefersReducedMotion) { this.showToast?.(message); return this.pause(420) }
+
+    const tint = meta.tint
+    const texture = `net-power-cue-${ev.key}`
+    this.makeRoundedRectTexture(texture, 350, 68, 0x172b40, 0x0f1f31, 22, tint)
+    const badge = this.playerBadges?.[ev.color]
+    const cue = this.add.container(badge?.x ?? W / 2, badge?.y ?? BOARD_Y + 38).setDepth(110).setAlpha(0).setScale(0.55)
+    cue.add(this.add.image(0, 0, texture).setAlpha(0.98))
+    cue.add(this.add.circle(-143, 0, 7, COLOR_HEX[ev.color]))
+    const icon = this.add.image(-112, 0, powerRuneTexture(this, ev.key))
+    icon.setDisplaySize(46, 46)
+    cue.add(icon)
+    cue.add(this.add.text(-78, -1, message, {
+      fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#f2f7ff', fontStyle: 'bold',
+    }).setOrigin(0, 0.5))
+
+    return new Promise((resolve) => this.tweens.chain({
+      targets: cue,
+      tweens: [
+        { x: W / 2, y: BOARD_Y + 40, alpha: 1, scale: 1, duration: dur(this._behind ? 110 : 240), ease: EASE.pop },
+        { scale: 1.03, duration: dur(this._behind ? 90 : 300), ease: 'Sine.easeInOut' },
+        {
+          y: BOARD_Y + 20, alpha: 0, scale: 0.94, duration: dur(this._behind ? 100 : 220), ease: EASE.out,
+          onComplete: () => { cue.destroy(); resolve() },
+        },
+      ],
+    }))
   }
 
   playMove(ev) {
@@ -700,11 +890,19 @@ export class NetLudoScene extends UIScene {
   }
 
   playRunePicked(ev) {
-    if (this._gatePickChoose) this.closeGatePicker()
+    if (this._gatePickChoose && (ev.color === this.myColor || ev.color === this._gatePickOwner)) this.closeGatePicker()
+    sfx.gateReward?.(ev.key)
     const badge = this.playerBadges?.[ev.color]
-    const from = this.gatePos?.(this._gateIndex?.[ev.color]) || { x: badge?.x ?? W / 2, y: badge?.y ?? H / 2 }
-    this.animateGateGrant?.(ev.color, ev.key, from)
-    return this.pause(180)
+    const gateIndex = ev.index ?? this._gateIndex?.[ev.color]
+    const from = this.gatePos?.(gateIndex) || { x: badge?.x ?? W / 2, y: badge?.y ?? H / 2 }
+    delete this._gateIndex?.[ev.color]
+    const animation = this.animateGateGrant?.(ev.color, ev.key, from) ?? Promise.resolve()
+    if (prefersReducedMotion) {
+      const power = t(`home.power${ev.key[0].toUpperCase()}${ev.key.slice(1)}`)
+      this.showToast?.(t('net.powerReceived', { name: this.playerName(ev.color), power }))
+      return Promise.resolve(animation).then(() => this.pause(500))
+    }
+    return animation
   }
 
   playBonus(ev) {
