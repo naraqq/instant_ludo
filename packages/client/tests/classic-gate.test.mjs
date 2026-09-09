@@ -148,7 +148,6 @@ test('landing on a "+1" rune grants an extra roll and respawns it', () => {
   s.bonusRuneViews = new Map()
   const respawned = []
   s.spawnBonusRune = (slot) => respawned.push(slot)
-  s.animateBonusCollect = (_r, _c, done) => done()
 
   s.collectBonusRune({ color: 'blue', index: 7 })
   assert.equal(s.extraRollNextTurn, true)

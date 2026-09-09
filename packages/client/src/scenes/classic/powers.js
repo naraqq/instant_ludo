@@ -519,25 +519,18 @@ export const PowersMixin = {
     sfx.rune()
     if (pawn.color === this.currentColor && this.phase === 'moving') {
       this.extraRollNextTurn = true
+      this._bonusThisMove = true // finishTurn lets flyBonusToDie light the cue
     } else {
       this.pendingExtraRoll.add(pawn.color)
     }
-    this.animateBonusCollect(rune, pawn.color, () => this.spawnBonusRune(rune.slot))
-  },
-
-  animateBonusCollect(rune, color, onComplete = () => {}) {
+    // pop the rune off the board and fly a "+1" into this player's dice tray
     const view = this.bonusRuneViews.get(rune.slot)
     this.bonusRuneViews.delete(rune.slot)
-    if (!view) { onComplete(); return }
-    this.tweens.killTweensOf(view)
-    view.setDepth(60)
-    if (prefersReducedMotion) { view.destroy(); onComplete(); return }
-    this.popAt(view.x, view.y, 0xffd54d)
-    this.tweens.add({
-      targets: view, y: view.y - 16, scale: 1.5, alpha: 0,
-      duration: 260, ease: EASE.out,
-      onComplete: () => { view.destroy(); onComplete() },
-    })
+    const at = view ? { x: view.x, y: view.y } : this.getTrackPixel(rune.index)
+    if (view) { this.tweens.killTweensOf(view); view.destroy() }
+    this.popAt(at.x, at.y, 0xffd54d)
+    this.spawnBonusRune(rune.slot)
+    this.flyBonusToDie(at.x, at.y, pawn.color)
   },
 
   // A gate sits on the seam just BEFORE track square `index`, so a move "passes"

@@ -54,7 +54,10 @@ export const TurnMixin = {
         this.diceValue = 0
         this.rawDiceValue = 0
         this.refreshTurnUI()
-        if (extraReason) this.showExtraRollCue(pawn.color, extraReason)
+        // for a "+1" pickup, flyBonusToDie lights the cue when the token lands
+        const bonusFly = extraReason === 'air' && this._bonusThisMove
+        this._bonusThisMove = false
+        if (extraReason && !bonusFly) this.showExtraRollCue(pawn.color, extraReason)
         this.reflowPawns(true)
         this.time.delayedCall(360, () => this.beginTurn())
       }

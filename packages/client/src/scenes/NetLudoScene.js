@@ -669,15 +669,11 @@ export class NetLudoScene extends UIScene {
   playBonus(ev) {
     const view = this.bonusRuneViews.get(ev.index)
     this.bonusRuneViews.delete(ev.index)
-    if (!view) return this.pause(120)
-    this.tweens.killTweensOf(view)
-    this.popAt(view.x, view.y, 0xffd54d)
-    return new Promise((res) => {
-      this.tweens.add({
-        targets: view, y: view.y - 16, scale: 1.5, alpha: 0,
-        duration: dur(260), ease: EASE.out, onComplete: () => { view.destroy(); res() },
-      })
-    })
+    const at = view ? { x: view.x, y: view.y } : this.getTrackPixel(ev.index)
+    if (view) { this.tweens.killTweensOf(view); view.destroy() }
+    this.popAt(at.x, at.y, 0xffd54d)
+    if (this._behind) { this.flyBonusToDie(at.x, at.y, ev.color); return this.pause(40) }
+    return this.flyBonusToDie(at.x, at.y, ev.color)
   }
 
   playCapture(ev) {

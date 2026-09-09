@@ -87,6 +87,62 @@ export const PlayersMixin = {
     return t(`color.${color}`)
   },
 
+  // A "+1" token pops off the board rune and arcs into the player's dice tray,
+  // charging it for the extra roll. Resolves when it lands.
+  flyBonusToDie(fx, fy, color) {
+    const tray = this.cornerDice?.[color]?.container
+    if (!tray || prefersReducedMotion) {
+      if (this.phase === 'roll' && this.currentColor === color) this.showExtraRollCue?.(color)
+      return Promise.resolve()
+    }
+    const tx = tray.x
+    const ty = tray.y
+    const token = this.add.container(fx, fy).setDepth(80)
+    const aura = this.add.circle(0, 0, 15, 0xffd54d, 0.35)
+    const plus = this.add.text(0, 0, '+1', {
+      fontFamily: 'Verdana, sans-serif', fontSize: 22, fontStyle: 'bold', color: '#fff4c8',
+    }).setOrigin(0.5).setStroke('#7a4e00', 5)
+    token.add([aura, plus])
+    this.tweens.add({ targets: aura, scale: 1.6, alpha: 0.12, duration: 460, yoyo: true, repeat: -1, ease: EASE.breathe })
+    // bezier arc, control point lifted above the midpoint
+    const mx = (fx + tx) / 2
+    const my = Math.min(fy, ty) - 74
+    const p = { t: 0 }
+    return new Promise((resolve) => {
+      let settled = false
+      const land = () => {
+        if (settled) return
+        settled = true
+        try {
+          token.destroy()
+          const ring = this.add.circle(tx, ty, 8, 0xffd54d, 0).setStrokeStyle(4, 0xffd54d, 0.95).setDepth(60)
+          this.tweens.add({
+            targets: ring, radius: 44, alpha: { from: 0.95, to: 0 },
+            duration: dur(320), ease: EASE.out, onComplete: () => ring.destroy(),
+          })
+          this.popAt?.(tx, ty + 4, 0xffd54d)
+          sfx.buzz?.([10, 40, 10])
+          if (this.phase === 'roll' && this.currentColor === color) this.showExtraRollCue?.(color)
+        } catch { /* scene torn down mid-flight */ }
+        resolve()
+      }
+      this.time.delayedCall(dur(760), land) // backstop so playback can't stall
+      this.tweens.add({
+        targets: p, t: 1, duration: dur(540), ease: 'Sine.easeInOut',
+        onUpdate: () => {
+          if (settled || !token.active) return
+          const t = p.t
+          const it = 1 - t
+          token.setPosition(
+            it * it * fx + 2 * it * t * mx + t * t * tx,
+            it * it * fy + 2 * it * t * my + t * t * ty,
+          ).setScale(0.55 + 0.55 * Math.sin(t * Math.PI))
+        },
+        onComplete: land,
+      })
+    })
+  },
+
   clearExtraRollCue(color) {
     const dice = this.cornerDice[color]
     if (!dice?.extraCue) return
