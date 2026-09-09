@@ -47,6 +47,7 @@ export function createGame(config = {}) {
     shieldExpiresOnRoll: perColor(colors, () => false),
     pity: perColor(colors, () => 0),
     pityForced: perColor(colors, () => false),
+    sixRun: perColor(colors, () => 0), // consecutive sixes this turn (3rd is void)
     captures: perColor(colors, () => 0),
     pendingGate: null,
     winner: null,
@@ -68,6 +69,7 @@ export function cloneState(s) {
     shieldExpiresOnRoll: { ...s.shieldExpiresOnRoll },
     pity: { ...s.pity },
     pityForced: { ...s.pityForced },
+    sixRun: { ...s.sixRun },
     captures: { ...s.captures },
     pendingGate: s.pendingGate ? { ...s.pendingGate } : null,
     finishOrder: [...s.finishOrder],

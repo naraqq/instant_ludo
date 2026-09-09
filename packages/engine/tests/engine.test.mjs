@@ -54,6 +54,38 @@ test('a 6 lets a pawn leave the yard and keeps the turn', () => {
   assert.equal(currentColor(state), 'blue') // still blue's turn
 })
 
+test('three 6s in a row: the third is void and the turn passes', () => {
+  let s = game()
+  // first 6 - leave the yard, still blue's turn
+  s = roll(s, 6)
+  s = step(s, { type: 'move', pawnId: 0 }).state
+  assert.equal(currentColor(s), 'blue')
+  assert.equal(s.sixRun.blue, 1)
+  // second 6 - move again, still blue's turn
+  s = roll(s, 6)
+  s = step(s, { type: 'move', pawnId: 0 }).state
+  assert.equal(currentColor(s), 'blue')
+  assert.equal(s.sixRun.blue, 2)
+  // third 6 - forfeited: no move phase, turn passes, streak reset
+  const third = step(s, { type: 'roll', value: 6 })
+  assert.equal(third.events.some((e) => e.t === 'sixForfeit' && e.color === 'blue'), true)
+  assert.equal(third.state.phase, 'roll')
+  assert.equal(currentColor(third.state), 'red')
+  assert.equal(third.state.sixRun.blue, 0)
+  const bluePawn = third.state.pawns.find((p) => p.color === 'blue' && p.id === 0)
+  assert.equal(bluePawn.steps, 6, 'the pawn did not move on the void six')
+})
+
+test('a non-6 between sixes resets the run', () => {
+  let s = game()
+  s = roll(s, 6)
+  s = step(s, { type: 'move', pawnId: 0 }).state
+  s = roll(s, 3) // resets the run; blue at step 6 -> 9, then turn passes
+  assert.equal(s.sixRun.blue, 0)
+  s = step(s, { type: 'move', pawnId: 0 }).state
+  assert.equal(currentColor(s), 'red')
+})
+
 test('fire doubles the next roll', () => {
   let s = game({ startingInventory: { fire: 1, water: 0, earth: 0 } })
   const used = step(s, { type: 'usePower', key: 'fire' })

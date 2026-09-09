@@ -71,7 +71,10 @@ function autoResolveGate(s, events) {
 // ---- the no-legal-move / end-of-turn plumbing, shared by roll and move ----
 
 function closeTurn(s, events, color, extraReason) {
-  if (!extraReason) advanceTurn(s)
+  if (!extraReason) {
+    advanceTurn(s)
+    s.sixRun[color] = 0 // the six-run only lives within a single player's turn
+  }
   // a bonus roll continues this turn, so the shield must survive it - only arm
   // the expiry once the turn genuinely passes to another player
   if (!extraReason && s.shielded[color]) s.shieldExpiresOnRoll[color] = true
@@ -123,13 +126,24 @@ function doRoll(s, events, explicitValue) {
   if (raw === 6) {
     s.pity[color] = 0
     s.pityForced[color] = false
+    s.sixRun[color] = (s.sixRun[color] || 0) + 1
   } else {
+    s.sixRun[color] = 0
     s.pity[color]++
     if (s.pity[color] >= SIX_PITY_LIMIT) s.pityForced[color] = true
   }
 
-  s.phase = 'move'
   events.push({ t: 'rolled', color, raw, dice: s.dice, doubled })
+
+  // Three sixes in a row: the third is void. No move, the turn passes.
+  if (raw === 6 && s.sixRun[color] >= 3) {
+    s.sixRun[color] = 0
+    events.push({ t: 'sixForfeit', color })
+    closeTurn(s, events, color, null)
+    return { state: s, events }
+  }
+
+  s.phase = 'move'
 
   const moves = legalMoves(s)
   if (moves.length === 0) {

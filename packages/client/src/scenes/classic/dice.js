@@ -40,10 +40,24 @@ export const DiceMixin = {
       if (rawValue === 6) {
         this.sixPity[color] = 0
         this.sixForced.delete(color)
+        this.sixRun[color] = (this.sixRun[color] || 0) + 1
       } else {
+        this.sixRun[color] = 0
         this.sixPity[color]++
         if (this.sixPity[color] >= SIX_PITY_LIMIT) this.sixForced.add(color)
       }
+
+      // three sixes in a row: the third is void - no move, the turn passes
+      if (rawValue === 6 && this.sixRun[color] >= 3) {
+        this.sixRun[color] = 0
+        this.rawDiceValue = 0
+        this.diceValue = 0
+        this.flashSixForfeit(color)
+        this.refreshTurnUI()
+        this.time.delayedCall(prefersReducedMotion ? 300 : 1050, () => this.nextTurn())
+        return
+      }
+
       this.phase = 'move'
       this.refreshTurnUI()
       this.updatePowerButtons()

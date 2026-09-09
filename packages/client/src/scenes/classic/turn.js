@@ -12,6 +12,7 @@ import { TURN_SECONDS } from './constants.js'
 
 export const TurnMixin = {
   advanceTurn() {
+    if (this.sixRun) this.sixRun[this.currentColor] = 0 // six-run lives within one turn
     this.currentPlayer = (this.currentPlayer + 1) % this.activeColors.length
   },
 

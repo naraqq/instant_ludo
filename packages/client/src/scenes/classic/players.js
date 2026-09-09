@@ -122,6 +122,34 @@ export const PlayersMixin = {
     })
   },
 
+  // Three sixes in a row: a red slash over the die + a "turn lost" tag.
+  flashSixForfeit(color) {
+    const tray = this.cornerDice?.[color]?.container
+    const x = tray ? tray.x : W / 2
+    const y = tray ? tray.y : 320
+    sfx.buzz?.([28, 18, 40])
+    sfx.lose?.()
+    if (prefersReducedMotion) { this.showToast?.(t('classic.threeSixes')); return }
+    const slash = this.add.graphics().setDepth(60)
+    slash.lineStyle(6, 0xff4757, 0.95)
+    slash.beginPath()
+    slash.moveTo(x - 22, y - 22)
+    slash.lineTo(x + 22, y + 22)
+    slash.strokePath()
+    slash.setScale(0)
+    this.tweens.add({ targets: slash, scale: 1, duration: dur(160), ease: EASE.pop })
+    const tag = this.add.text(x, y - 40, t('classic.threeSixes'), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#ffd0d4', fontStyle: 'bold', align: 'center',
+    }).setOrigin(0.5).setDepth(61).setAlpha(0)
+    this.tweens.add({ targets: tag, alpha: 1, y: y - 48, duration: dur(200), ease: EASE.out })
+    this.time.delayedCall(dur(1150), () => {
+      this.tweens.add({
+        targets: [slash, tag], alpha: 0, duration: dur(220),
+        onComplete: () => { slash.destroy(); tag.destroy() },
+      })
+    })
+  },
+
   drawTimerArc(frac) {
     const badge = this.playerBadges[this.currentColor]
     const arc = badge?.getByName('arc')

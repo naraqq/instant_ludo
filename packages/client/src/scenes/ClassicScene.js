@@ -125,6 +125,7 @@ export class ClassicScene extends UIScene {
     this.captureCounts = Object.fromEntries(COLORS.map((c) => [c, 0]))
     this.sixPity = Object.fromEntries(COLORS.map((c) => [c, 0]))
     this.sixForced = new Set()
+    this.sixRun = Object.fromEntries(COLORS.map((c) => [c, 0])) // consecutive 6s this turn
     this.onRollResolved = null
     this.turnTimer = null
     this.turnSecondsLeft = TURN_SECONDS

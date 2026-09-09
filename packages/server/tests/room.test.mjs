@@ -270,6 +270,27 @@ test('each event batch keeps its own state when multiple actions share a patch',
   await client.leave()
 })
 
+test('three sixes in a row: the server voids the third and passes the turn', async () => {
+  const room = await colyseus.createRoom('ludo', { maxPlayers: 2, turnSeconds: 999, botThinkMs: 999999 })
+  const client = await colyseus.connectTo(room, { name: 'Player', eventSnapshots: true })
+  quiet(client)
+  room.startMatch()
+  await wait(60)
+  const first = currentColor(room.engine)
+  const events = []
+  client.onMessage('events', (batch) => events.push(...batch.events))
+  room.applyAction({ type: 'roll', value: 6 })
+  room.applyAction({ type: 'move', pawnId: 0 })
+  room.applyAction({ type: 'roll', value: 6 })
+  room.applyAction({ type: 'move', pawnId: 0 })
+  room.applyAction({ type: 'roll', value: 6 })
+  await wait(120)
+  assert.equal(events.some((e) => e.t === 'sixForfeit' && e.color === first), true)
+  assert.notEqual(currentColor(room.engine), first, 'turn passed off the forfeiting player')
+  assert.equal(room.engine.phase, 'roll')
+  await client.leave()
+})
+
 test('quick match respects the requested table size', async () => {
   const duel = await colyseus.sdk.joinOrCreate('ludo', { maxPlayers: 2, lobbyWaitMs: 999999 })
   const table = await colyseus.sdk.joinOrCreate('ludo', { maxPlayers: 4, lobbyWaitMs: 999999 })

@@ -593,6 +593,7 @@ export class NetLudoScene extends UIScene {
         if (ev.extra || ev.cause) this._pendingCue = { color: ev.color, reason: ev.extra || ev.cause }
         return this.pause(140)
       case 'noMove': return this.pause(360)
+      case 'sixForfeit': return this.playSixForfeit(ev)
       case 'gameover': this.showGameOver(ev); return this.pause(200)
       default: return Promise.resolve()
     }
@@ -610,6 +611,11 @@ export class NetLudoScene extends UIScene {
     const snap = this._snapRoll && ev.color === this.myColor
     this._snapRoll = false
     return this.animateDiceTumble(ev.color, ev.raw, { doubled: Boolean(ev.doubled), instant: this._behind, snap })
+  }
+
+  playSixForfeit(ev) {
+    this.flashSixForfeit?.(ev.color)
+    return this.pause(1000)
   }
 
   playPowerUsed(ev) {
