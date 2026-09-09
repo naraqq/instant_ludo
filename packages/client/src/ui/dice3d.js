@@ -110,8 +110,9 @@ export function drawDice(graphics, pose) {
   }
 }
 
-// A clear, face-on result at rest, using the same graphics object as the tumble.
-export function drawRestingDice(graphics, value) {
+// The die body at rest, no pips - a blank face for the "GO" prompt to sit on
+// while we wait for the player to tap and roll.
+export function drawBlankDice(graphics) {
   graphics.clear()
   // soft drop shadow
   graphics.fillStyle(0x0a1020, .3).fillRoundedRect(-26, -21, 52, 54, 12)
@@ -120,6 +121,11 @@ export function drawRestingDice(graphics, value) {
     .fillRoundedRect(-26, -26, 52, 52, 12)
   graphics.fillStyle(0xffffff, .5).fillRoundedRect(-22, -22, 44, 16, 8)
   graphics.lineStyle(1.5, 0xc7cfdd, 1).strokeRoundedRect(-26, -26, 52, 52, 12)
+}
+
+// A clear, face-on result at rest, using the same graphics object as the tumble.
+export function drawRestingDice(graphics, value) {
+  drawBlankDice(graphics)
   // Six pips get a touch less room, so shrink them a hair.
   const r = value >= 5 ? 5.4 : 6.1
   for (const [u, v] of PIPS[value]) {

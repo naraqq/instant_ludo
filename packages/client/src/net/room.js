@@ -54,10 +54,11 @@ function joinOpts(extra) {
 }
 
 // Quick match: join any open public room, or make one. Empty seats fill with bots.
-export async function joinMatch({ maxPlayers = 4 } = {}) {
+// `teams` pools only with other 2v2 seekers (server filterBy).
+export async function joinMatch({ maxPlayers = 4, teams = false } = {}) {
   if (!URL) throw new Error('online play is not configured')
   await ready
-  const room = await getClient().joinOrCreate('ludo', joinOpts({ maxPlayers }))
+  const room = await getClient().joinOrCreate('ludo', joinOpts({ maxPlayers, teams }))
   stashReconnect(room)
   return room
 }
@@ -65,19 +66,19 @@ export async function joinMatch({ maxPlayers = 4 } = {}) {
 // Solo vs a bot on the real server. A private room that starts the moment we
 // join - use it to exercise the full online path (auth, join, state sync,
 // events, reconnect) without a second player.
-export async function soloMatch({ maxPlayers = 2 } = {}) {
+export async function soloMatch({ maxPlayers = 2, teams = false } = {}) {
   if (!URL) throw new Error('online play is not configured')
   await ready
-  const room = await getClient().create('ludo', joinOpts({ maxPlayers, solo: true }))
+  const room = await getClient().create('ludo', joinOpts({ maxPlayers, teams, solo: true }))
   stashReconnect(room)
   return room
 }
 
 // Create a private room; the 6-digit code lands in room.state.code to share.
-export async function createRoom({ maxPlayers = 2 } = {}) {
+export async function createRoom({ maxPlayers = 2, teams = false } = {}) {
   if (!URL) throw new Error('online play is not configured')
   await ready
-  const room = await getClient().create('ludo', joinOpts({ maxPlayers, private: true }))
+  const room = await getClient().create('ludo', joinOpts({ maxPlayers, teams, private: true }))
   stashReconnect(room)
   return room
 }

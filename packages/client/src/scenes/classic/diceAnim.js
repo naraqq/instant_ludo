@@ -15,6 +15,7 @@ export const DiceAnimMixin = {
   restDice(color, rawValue, { doubled = false } = {}) {
     const dice = this.cornerDice?.[color]
     if (!dice) return
+    dice.go?.setVisible(false)
     dice.pose = dicePose(rawValue)
     dice.value = rawValue
     dice.face2.setVisible(doubled)
@@ -35,6 +36,7 @@ export const DiceAnimMixin = {
   diceWindup(color, { doubled = false } = {}) {
     const dice = this.cornerDice?.[color]
     if (!dice) return { stop() {} }
+    dice.go?.setVisible(false)
     const tray = dice.container
     const spread = doubled ? 44 : 0
     dice.face2.setVisible(doubled)
@@ -84,6 +86,7 @@ export const DiceAnimMixin = {
   animateDiceTumble(color, rawValue, { doubled = false, instant = false, snap = false } = {}) {
     const dice = this.cornerDice?.[color]
     if (!dice) return Promise.resolve()
+    dice.go?.setVisible(false)
     if (instant) { this.restDice(color, rawValue, { doubled }); return Promise.resolve() }
     if (snap) {
       this.restDice(color, rawValue, { doubled })

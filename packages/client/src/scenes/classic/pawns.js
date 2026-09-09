@@ -235,7 +235,7 @@ export const PawnsMixin = {
         const view = this.pawnViews.get(pawn)
         this.layoutPawnView(pawn, view)
         const base = this.getPawnPixel(pawn)
-        const offset = offsets[index]
+        const offset = offsets[index] ?? { x: 0, y: 0 }
         view.setData('stackScale', scale)
         view.setData('stackOffset', offset)
         this.tweens.killTweensOf(view)

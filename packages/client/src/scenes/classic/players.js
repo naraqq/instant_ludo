@@ -3,7 +3,7 @@
 import { W } from '../../config.js'
 import { DUR, EASE, dur, prefersReducedMotion } from '../../ui/tokens.js'
 import { sfx } from '../../audio.js'
-import { dicePose, drawRestingDice } from '../../ui/dice3d.js'
+import { dicePose, drawRestingDice, drawBlankDice } from '../../ui/dice3d.js'
 import { t } from '../../i18n.js'
 import { COLORS, COLOR_HEX, COLOR_LIGHT } from '@ludo/engine'
 import { POD, POD_R } from './constants.js'
@@ -61,7 +61,12 @@ export const PlayersMixin = {
     const pose = dicePose(1)
     drawRestingDice(face, 1)
     drawRestingDice(face2, 1)
-    container.add([glow, shadow, shadow2, face, face2])
+    // "GO" prompt: sits on a blank die face while it's this player's turn to
+    // roll, so the tray never shows a stale number from their last turn.
+    const go = this.add.text(0, -2, t('classic.go'), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 19, fontStyle: 'bold', color: '#26314a',
+    }).setOrigin(0.5).setVisible(false)
+    container.add([glow, shadow, shadow2, face, face2, go])
     const extraCue = this.add.container(0, 0).setVisible(false)
     const extraRing = this.add.circle(0, 0, 38, 0xffffff, 0)
       .setStrokeStyle(2.5, 0xffd54d)
@@ -75,7 +80,25 @@ export const PlayersMixin = {
     this.addPressFeedback(zone, container, () => {
       if (!this.isBot(this.currentColor)) this.rollDice()
     })
-    return { container, face, face2, glow, shadow, shadow2, pose, value: 1, extraCue, extraRing, extraPlus }
+    return { container, face, face2, go, glow, shadow, shadow2, pose, value: 1, extraCue, extraRing, extraPlus }
+  },
+
+  // Show / hide the "GO" prompt on a colour's dice tray. On: blank the die face
+  // and lay "GO" over it. Off: just hide the label - the caller (a tumble or a
+  // rest) owns what the face shows next.
+  setDiePrompt(color, on) {
+    const dice = this.cornerDice?.[color]
+    if (!dice?.go) return
+    if (on) {
+      dice.face2?.setVisible(false)
+      dice.shadow2?.setVisible(false)
+      dice.face.setPosition(0, -1).setScale(1)
+      dice.shadow.setPosition(2, 25).setScale(1).setAlpha(0.3)
+      drawBlankDice(dice.face)
+      dice.go.setVisible(true)
+    } else {
+      dice.go.setVisible(false)
+    }
   },
 
   playerName(color) {
@@ -307,6 +330,8 @@ export const PlayersMixin = {
       } else {
         dice.glow.setAlpha(hot ? 0.3 : 0)
       }
+      // waiting on this player to tap and roll -> show "GO", not last turn's pips
+      this.setDiePrompt(key, on && this.phase === 'roll')
     })
 
     this.updatePawnHighlights()

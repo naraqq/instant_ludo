@@ -50,7 +50,7 @@ export class NetLudoScene extends UIScene {
     this.cornerDice = {}
     this._latestGame = null
 
-    this.matchConfig = { mode: 'quick', maxPlayers: 2, ...data }
+    this.matchConfig = { mode: 'quick', maxPlayers: 2, teams: false, ...data }
     this.g = null
     this.seats = {}
     this.myColor = null
@@ -77,6 +77,29 @@ export class NetLudoScene extends UIScene {
   get powerBarColor() { return this.myColor }
   get myTurn() { return Boolean(this.g) && this.currentColor === this.myColor && !this._animating && this._connected && !this._windup }
   get sixForced() { return { has: () => false } }
+
+  // ---- 2v2 teams (null / no-ops outside a team match) ----
+  get team() { return this.g?.team ?? null }
+  // whose pawns actually move this turn: the roller, or - in a team match, once
+  // the roller is all home - their still-playing partner
+  get moverColor() {
+    const g = this.g
+    if (!g) return null
+    const roller = g.colors[g.current]
+    if (!g.team) return roller
+    const done = (c) => g.pawns.filter((p) => p.color === c).every((p) => p.finished)
+    if (!done(roller)) return roller
+    const mate = g.colors.find((c) => c !== roller && g.team[c] === g.team[roller])
+    return mate && !done(mate) ? mate : roller
+  }
+  get teammateColor() {
+    const g = this.g
+    if (!g?.team || !this.myColor) return null
+    return g.colors.find((c) => c !== this.myColor && g.team[c] === g.team[this.myColor]) ?? null
+  }
+  // it's my turn but the dice will move my partner's pawns
+  get assisting() { return this.currentColor === this.myColor && this.moverColor !== this.myColor }
+  teamOf(color) { return this.g?.team ? this.g.team[color] ?? null : null }
 
   isBot(color) { return this.seats[color]?.bot ?? false }
   playerName(color) {
@@ -124,10 +147,11 @@ export class NetLudoScene extends UIScene {
       const c = this.matchConfig
       joined = c.mode === 'quick' ? await tryReconnect() : null
       if (!joined) {
-        if (c.mode === 'create') joined = await createRoom({ maxPlayers: c.maxPlayers })
+        const opts = { maxPlayers: c.maxPlayers, teams: c.teams }
+        if (c.mode === 'create') joined = await createRoom(opts)
         else if (c.mode === 'code') joined = await joinByCode(c.code)
-        else if (c.mode === 'solo') joined = await soloMatch({ maxPlayers: c.maxPlayers })
-        else joined = await joinMatch({ maxPlayers: c.maxPlayers })
+        else if (c.mode === 'solo') joined = await soloMatch(opts)
+        else joined = await joinMatch(opts)
       }
     } catch (err) {
       if (run !== this._run || this._disposed) return
@@ -240,7 +264,7 @@ export class NetLudoScene extends UIScene {
       this.syncBonusRunes()
       this.refreshTurn()
     }
-    if (g.phase === 'gameover' && !this._resultShown) this.showGameOver({ winner: g.winner })
+    if (g.phase === 'gameover' && !this._resultShown) this.showGameOver({ winner: g.winner, winningTeam: g.winningTeam })
     this.restoreGatePicker()
     // while animating, playEvents() owns the turn UI so it never runs ahead
   }
@@ -409,9 +433,14 @@ export class NetLudoScene extends UIScene {
     }
     if (this.gameOver) { this.header.setText(''); return }
     const c = this.currentColor
-    this.header.setText(c === this.myColor
-      ? t('classic.yourTurn') : t('net.theirTurn', { name: this.playerName(c) }))
-      .setColor(`#${(COLOR_HEX[c] ?? 0xffffff).toString(16).padStart(6, '0')}`)
+    const mover = this.moverColor
+    let text
+    if (this.assisting) text = t('net.assist', { name: this.playerName(mover) })
+    else if (c === this.myColor) text = t('classic.yourTurn')
+    else if (this.team && mover !== c) text = t('net.assistOther', { name: this.playerName(c), mate: this.playerName(mover) })
+    else text = t('net.theirTurn', { name: this.playerName(c) })
+    this.header.setText(text)
+      .setColor(`#${(COLOR_HEX[mover] ?? COLOR_HEX[c] ?? 0xffffff).toString(16).padStart(6, '0')}`)
   }
 
   // countdown ring on the active pod, from the server's deadline
@@ -477,14 +506,15 @@ export class NetLudoScene extends UIScene {
 
   tryMovePawn(pawn) {
     if (!this._connected || this.phase !== 'move' || this.currentColor !== this.myColor || this._animating || this._windup) return
-    if (pawn.color !== this.myColor || !this.canMove(pawn)) return
+    // on my turn I move my own pawns - or, once I'm all home, my partner's
+    if (pawn.color !== this.moverColor || !this.canMove(pawn)) return
     sfx.tap()
     this._animating = true
     // the moving pawn's landing square is deterministic - animate it now and let
     // the server's `moved` event just confirm it
     const from = pawn.steps
     const to = from < 0 ? 0 : Math.min(56, from + this.diceValue)
-    this._predicted = { color: this.myColor, pawnId: pawn.id, to }
+    this._predicted = { color: pawn.color, pawnId: pawn.id, to }
     pawn.steps = to
     pawn.finished = to >= 56
     this.updatePawnHighlights()
@@ -501,7 +531,7 @@ export class NetLudoScene extends UIScene {
       const token = view.getByName('token')
       const glow = view.getByName('glow')
       const active = this.phase === 'move' && !this._animating
-        && this.currentColor === this.myColor && pawn.color === this.myColor && this.canMove(pawn)
+        && this.currentColor === this.myColor && pawn.color === this.moverColor && this.canMove(pawn)
       view.setAlpha(active ? 1 : 0.92)
       // the pulse rides the token (a child), so it never fights reflowPawns'
       // animated stack-in slide on the view itself
@@ -594,6 +624,9 @@ export class NetLudoScene extends UIScene {
       case 'shieldBlock': return this.playShieldBlockEv(ev)
       case 'shieldExpired': this.syncShields(); return this.pause(80)
       case 'finish': return this.playFinish(ev)
+      case 'colorHome': // a colour brought all 4 home (team match) - not game over
+        if (!this._behind) this.showToast?.(t('net.colorHome', { name: this.playerName(ev.color) }))
+        return this.pause(this._behind ? 40 : 500)
       case 'extraRoll':
       case 'turn':
         if (ev.extra || ev.cause) this._pendingCue = { color: ev.color, reason: ev.extra || ev.cause }
@@ -656,8 +689,10 @@ export class NetLudoScene extends UIScene {
 
   playGate(ev) {
     this.flashGate?.(ev.index)
-    ;(this._gateIndex ||= {})[ev.color] = ev.index
-    if (ev.color === this.myColor && !this._gatePickChoose) {
+    // the pawn's owner passes the gate; whoever's turn it is makes the pick
+    const picker = ev.picker ?? ev.color
+    ;(this._gateIndex ||= {})[picker] = ev.index
+    if (picker === this.myColor && !this._gatePickChoose) {
       this._gatePickOwner = this.myColor
       this.showGatePicker(this.myColor, (key) => this.send({ type: 'pickGateRune', key }))
     }
@@ -677,9 +712,12 @@ export class NetLudoScene extends UIScene {
     this.bonusRuneViews.delete(ev.index)
     const at = view ? { x: view.x, y: view.y } : this.getTrackPixel(ev.index)
     if (view) { this.tweens.killTweensOf(view); view.destroy() }
+    // the extra roll belongs to whoever's turn it is (ev.roller), so the "+1"
+    // flies to their dice tray, not the pawn owner's
+    const trayColor = ev.roller ?? ev.color
     this.popAt(at.x, at.y, 0xffd54d)
-    if (this._behind) { this.flyBonusToDie(at.x, at.y, ev.color); return this.pause(40) }
-    return this.flyBonusToDie(at.x, at.y, ev.color)
+    if (this._behind) { this.flyBonusToDie(at.x, at.y, trayColor); return this.pause(40) }
+    return this.flyBonusToDie(at.x, at.y, trayColor)
   }
 
   playCapture(ev) {
@@ -726,20 +764,33 @@ export class NetLudoScene extends UIScene {
     return this.pause(this._behind ? 60 : 260)
   }
 
+  // "Blue & Green" for team id, in seat order
+  teamName(id) {
+    const g = this.g
+    if (!g?.team) return ''
+    return g.colors.filter((c) => g.team[c] === id).map((c) => t(`color.${c}`)).join(' & ')
+  }
+
   showGameOver(ev) {
     if (this._resultShown || !ev.winner) return
     this._resultShown = true
     this.gameOver = true
     clearReconnect()
-    const won = ev.winner === this.myColor
+    const teamMode = this.team != null && (ev.winningTeam ?? this.g?.winningTeam ?? -1) >= 0
+    const winTeam = ev.winningTeam ?? this.g?.winningTeam
+    const won = teamMode ? this.teamOf(this.myColor) === winTeam : ev.winner === this.myColor
+    const accent = COLOR_HEX[ev.winner]
     const layer = this.add.container(0, 0).setDepth(200)
     layer.add(this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.82).setInteractive())
-    this.makeRoundedRectTexture(`net-vic-${ev.winner}`, 460, 300, 0x21364c, 0x101e31, 26, COLOR_HEX[ev.winner])
+    this.makeRoundedRectTexture(`net-vic-${ev.winner}`, 460, 300, 0x21364c, 0x101e31, 26, accent)
     const card = this.add.container(W / 2, H / 2, [this.add.image(0, 0, `net-vic-${ev.winner}`)])
     card.add(this.add.text(0, -84, won ? t('victory.youWin') : t('victory.defeat'), {
       fontFamily: 'Verdana, sans-serif', fontSize: 40, color: '#fff', fontStyle: 'bold',
     }).setOrigin(0.5))
-    card.add(this.add.text(0, -30, t('victory.allHome', { color: t(`color.${ev.winner}`) }), {
+    card.add(this.add.text(0, -30,
+      teamMode
+        ? t('victory.teamHome', { team: this.teamName(winTeam) })
+        : t('victory.allHome', { color: t(`color.${ev.winner}`) }), {
       fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#c9b8ff',
     }).setOrigin(0.5))
     this.makeRoundedRectTexture('net-vic-btn', 200, 56, 0x22c48d, 0x10ad85, 15, 0x64dfad)

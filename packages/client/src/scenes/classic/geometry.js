@@ -49,14 +49,22 @@ export const GeometryMixin = {
     if (count <= 1) return 1
     if (count === 2) return 0.78
     if (count === 3) return 0.68
-    return 0.6
+    if (count <= 4) return 0.6
+    // safe squares and 2v2 partner cells can pile up 5-8 deep
+    return count <= 6 ? 0.5 : 0.42
   },
 
   getStackOffsets(count) {
     if (count <= 1) return [{ x: 0, y: 0 }]
     if (count === 2) return [{ x: -7, y: -6 }, { x: 7, y: 6 }]
     if (count === 3) return [{ x: 0, y: -9 }, { x: -9, y: 7 }, { x: 9, y: 7 }]
-    return [{ x: -9, y: -9 }, { x: 9, y: -9 }, { x: -9, y: 9 }, { x: 9, y: 9 }]
+    if (count <= 4) return [{ x: -9, y: -9 }, { x: 9, y: -9 }, { x: -9, y: 9 }, { x: 9, y: 9 }]
+    // 5+ : even ring, top-first, tightening as the crowd grows
+    const r = count <= 6 ? 12 : 14
+    return Array.from({ length: count }, (_, i) => {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / count
+      return { x: Math.round(Math.cos(a) * r), y: Math.round(Math.sin(a) * r) }
+    })
   },
 
   getPawnCell(pawn) {

@@ -454,7 +454,7 @@ export class HomeScene extends UIScene {
   openGameSetup(state) {
     const s = state || { opponents: 3, mode: 'cpu', difficulty: store.difficulty }
     const online = s.mode === 'online'
-    const cardH = 620
+    const cardH = online ? 664 : 620
     const { card } = this.buildModal(t('setup.title'), cardH)
     const T = -cardH / 2
     const reopen = () => this.openGameSetup({ ...s })
@@ -465,17 +465,20 @@ export class HomeScene extends UIScene {
     this.modalChip(card, 160, T + 150, 148, t('setup.online'), online, () => { s.mode = 'online'; reopen() })
 
     if (online) {
-      // Solo vs a bot on the real server - starts instantly, no lobby wait.
-      this.modalButton(card, 0, T + 254, 300, t('net.quick'), true, () => {
-        this.closeModal(); this.goTo('NetLudo', { mode: 'quick', maxPlayers: 4 })
+      // Quick match fills empty seats with bots, so every option starts fast.
+      // 2v2 pools only with other team seekers (server keeps the queues apart).
+      const rows = [
+        [t('net.quick'), true, { mode: 'quick', maxPlayers: 4 }],
+        [t('net.teams'), false, { mode: 'quick', maxPlayers: 4, teams: true }],
+        [t('net.solo'), false, { mode: 'solo', maxPlayers: 2 }],
+        [t('net.create'), false, { mode: 'create', maxPlayers: 2 }],
+      ]
+      rows.forEach(([label, primary, data], i) => {
+        this.modalButton(card, 0, T + 236 + i * 84, 300, label, primary, () => {
+          this.closeModal(); this.goTo('NetLudo', data)
+        })
       })
-      this.modalButton(card, 0, T + 346, 300, t('net.solo'), false, () => {
-        this.closeModal(); this.goTo('NetLudo', { mode: 'solo', maxPlayers: 2 })
-      })
-      this.modalButton(card, 0, T + 438, 300, t('net.create'), false, () => {
-        this.closeModal(); this.goTo('NetLudo', { mode: 'create', maxPlayers: 2 })
-      })
-      this.modalButton(card, 0, T + 530, 300, t('net.joinCode'), false, () => {
+      this.modalButton(card, 0, T + 236 + rows.length * 84, 300, t('net.joinCode'), false, () => {
         this.openTextInput({
           title: t('net.joinCode'), placeholder: '000000', maxLength: 6,
           numeric: true, submit: t('net.joinCode'),
