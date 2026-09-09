@@ -3,15 +3,15 @@
 import { START_INDEX, TRACK, HOME_LANES, YARDS } from '@ludo/engine'
 import { TILE, BOARD_X, BOARD_Y } from './constants.js'
 
-// Where a colour's finished pawns park: a small 2x2 inside that colour's centre
-// triangle (grid units). cx/cy is the cluster centre, hx/hy the half-spacing.
+// The spot a pawn glides to as it reaches home, before it takes its bow and
+// leaves the board (parkFinishedPawn). A small 2x2 inside that colour's centre
+// triangle (grid units): cx/cy is the cluster centre, hx/hy the half-spacing.
 const FINISH_LAYOUT = {
   red: { cx: 6.55, cy: 7.5, hx: 0.25, hy: 0.35 },
   green: { cx: 7.5, cy: 6.55, hx: 0.35, hy: 0.25 },
   yellow: { cx: 8.45, cy: 7.5, hx: 0.25, hy: 0.35 },
   blue: { cx: 7.5, cy: 8.45, hx: 0.35, hy: 0.25 },
 }
-export const FINISH_PAWN_SCALE = 0.4
 
 export const GeometryMixin = {
   // A centred 2x2 of home slots inside the tinted holder, spaced for the

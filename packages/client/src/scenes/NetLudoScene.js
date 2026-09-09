@@ -14,7 +14,7 @@ import { PawnsMixin } from './classic/pawns.js'
 import { PowersMixin } from './classic/powers.js'
 import { CombatMixin } from './classic/combat.js'
 import { DiceAnimMixin } from './classic/diceAnim.js'
-import { TILE, BOARD_Y, TURN_SECONDS, POD } from './classic/constants.js'
+import { TURN_SECONDS, POD } from './classic/constants.js'
 import { joinMatch, soloMatch, createRoom, joinByCode, tryReconnect, clearReconnect } from '../net/room.js'
 
 export class NetLudoScene extends UIScene {
@@ -245,6 +245,9 @@ export class NetLudoScene extends UIScene {
       const view = this.makePawnView(pawn.color)
       this.pawnViews.set(pawn, view)
       this.positionPawn(pawn, false)
+      // rejoining a game in progress: pawns already home are off the board,
+      // recorded only by the check mark in their yard slot
+      if (pawn.finished) { this.markPawnHome(pawn); view.setVisible(false).setAlpha(0) }
     })
     this.reflowPawns(false)
     this.syncBonusRunes()
@@ -375,6 +378,7 @@ export class NetLudoScene extends UIScene {
   updatePawnHighlights() {
     this.clearActivePawnZones()
     this.pawns.forEach((pawn) => {
+      if (pawn.finished) return // retired from the board - see parkFinishedPawn
       const view = this.pawnViews.get(pawn)
       if (!view) return
       const glow = view.getByName('glow')
@@ -564,11 +568,11 @@ export class NetLudoScene extends UIScene {
 
   playFinish(ev) {
     const pawn = this.pawnRef(ev.color, ev.pawnId)
-    if (pawn) { pawn.finished = true; pawn.steps = 56 }
-    this.popAt(W / 2, BOARD_Y + TILE * 7.5, COLOR_HEX[ev.color])
-    sfx.rune?.()
-    this.markPawnHome?.(pawn)
-    return this.pause(220)
+    if (!pawn) return this.pause(120)
+    pawn.finished = true
+    pawn.steps = 56
+    this.parkFinishedPawn(pawn)
+    return this.pause(this._behind ? 60 : 260)
   }
 
   showGameOver(ev) {

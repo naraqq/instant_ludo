@@ -5,7 +5,6 @@ import { DUR, EASE, dur, prefersReducedMotion } from '../../ui/tokens.js'
 import { sfx } from '../../audio.js'
 import { samplePawnPath } from '../../ui/pawnMotion.js'
 import { COLOR_HEX, COLOR_LIGHT } from '@ludo/engine'
-import { FINISH_PAWN_SCALE } from './geometry.js'
 import { TILE } from './constants.js'
 
 // Character art is authored feet-on-the-bottom-edge; fit it to a target height
@@ -283,20 +282,54 @@ export const PawnsMixin = {
     this.tweens.add({ targets: mark, scale: 1, duration: dur(DUR.base), ease: EASE.pop, delay: dur(120) })
   },
 
+  // A pawn that just reached home takes a short victory bow, then leaves the
+  // board - the check mark stamped into its yard slot is the lasting record.
+  // (Four shrunken characters crowded around the centre star never read well.)
+  parkFinishedPawn(pawn) {
+    const view = this.pawnViews.get(pawn)
+    if (!view) return
+    this.tweens.killTweensOf(view)
+    const token = view.getByName('token')
+    this.tweens.killTweensOf(token)
+    token.setPosition(0, 0).setAngle(0).setScale(1)
+    view.getByName('restShadow')?.setVisible(false)
+    view.getByName('glow')?.setFillStyle(0xffffff, 0)
+    this.markPawnHome(pawn)
+    sfx.rune?.()
+    const base = view.getData('stackScale') ?? 1
+    if (prefersReducedMotion || this._behind) {
+      view.setVisible(false).setAlpha(0).setScale(base)
+      return
+    }
+    this.popAt(view.x, view.y, COLOR_HEX[pawn.color])
+    this.tweens.add({
+      targets: view, scale: base * 1.4,
+      duration: dur(220), ease: EASE.pop,
+      onComplete: () => this.tweens.add({
+        targets: view, alpha: 0, scale: base * 0.72, y: view.y - 12,
+        duration: dur(300), ease: EASE.out,
+        onComplete: () => view.setVisible(false).setScale(base).setPosition(-9999, -9999),
+      }),
+    })
+  },
+
   reflowPawns(animate) {
     const groups = new Map()
     this.pawns.forEach((pawn) => {
+      if (pawn.finished) {
+        // retired by parkFinishedPawn; a bare state-snap rebuild lands here too
+        const v = this.pawnViews.get(pawn)
+        if (v && v.visible && !this.tweens.isTweening(v)) v.setVisible(false).setAlpha(0)
+        return
+      }
       const key = this.getPawnStackKey(pawn)
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key).push(pawn)
     })
 
     groups.forEach((stack) => {
-      // finished pawns already have their own slot in the triangle - park them
-      // there at a smaller scale rather than fanning them out as a stack
-      const finished = stack[0].finished
-      const offsets = finished ? stack.map(() => ({ x: 0, y: 0 })) : this.getStackOffsets(stack.length)
-      const scale = finished ? FINISH_PAWN_SCALE : this.getStackScale(stack.length)
+      const offsets = this.getStackOffsets(stack.length)
+      const scale = this.getStackScale(stack.length)
       stack.forEach((pawn, index) => {
         const view = this.pawnViews.get(pawn)
         this.layoutPawnView(pawn, view)
@@ -325,7 +358,9 @@ export const PawnsMixin = {
   updatePawnHighlights() {
     this.clearActivePawnZones()
     this.pawns.forEach((pawn) => {
+      if (pawn.finished) return // retired from the board - see parkFinishedPawn
       const view = this.pawnViews.get(pawn)
+      if (!view) return
       const glow = view.getByName('glow')
       const active = this.phase === 'move' && !this.isBot(pawn.color) && pawn.color === this.currentColor && this.canMove(pawn)
       view.setAlpha(active ? 1 : 0.92)

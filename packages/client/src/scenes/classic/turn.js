@@ -8,7 +8,7 @@ import { store } from '../../store.js'
 import { chooseAiMove, chooseAiPower, bestForcedDice } from '@ludo/engine'
 import { t } from '../../i18n.js'
 import { COLOR_HEX } from '@ludo/engine'
-import { TILE, BOARD_Y, TURN_SECONDS } from './constants.js'
+import { TURN_SECONDS } from './constants.js'
 
 export const TurnMixin = {
   advanceTurn() {
@@ -38,11 +38,7 @@ export const TurnMixin = {
 
       const captured = this.collectCaptures(pawn)
       const finishTurn = () => {
-        if (pawn.finished) {
-          this.popAt(W / 2, BOARD_Y + TILE * 7.5, COLOR_HEX[pawn.color])
-          sfx.rune()
-          this.markPawnHome(pawn)
-        }
+        if (pawn.finished) this.parkFinishedPawn(pawn)
         this.checkForWinner(pawn.color)
         if (this.gameOver) return
         this.phase = 'roll'
