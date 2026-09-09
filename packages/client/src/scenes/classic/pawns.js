@@ -4,8 +4,55 @@ import Phaser from 'phaser'
 import { samplePawnPath } from '../../ui/pawnMotion.js'
 import { DUR, EASE, dur, prefersReducedMotion } from '../../ui/tokens.js'
 import { sfx } from '../../audio.js'
-import { COLOR_HEX, COLOR_LIGHT } from '@ludo/engine'
+import { COLOR_HEX, COLOR_LIGHT, COLOR_DARK } from '@ludo/engine'
 import { TILE } from './constants.js'
+
+const hxc = (n) => '#' + ((n >>> 0) & 0xffffff).toString(16).padStart(6, '0')
+
+// A glossy token base disc, one per colour, so the mismatched character art
+// reads as one cohesive set of Ludo pieces. Painted once at 2x.
+function pawnBaseTexture(scene, color) {
+  const key = `pawn-base-${color}`
+  if (scene.textures.exists(key)) return key
+  const S = 2
+  const w = 68 * S
+  const h = 34 * S
+  const cv = document.createElement('canvas')
+  cv.width = w
+  cv.height = h
+  const ctx = cv.getContext('2d')
+  const cx = w / 2
+  const cy = h * 0.46
+  const rx = 30 * S
+  const ry = 13 * S
+  // drop shadow
+  ctx.save()
+  ctx.filter = `blur(${3 * S}px)`
+  ctx.beginPath()
+  ctx.ellipse(cx, cy + 6 * S, rx, ry, 0, 0, 7)
+  ctx.fillStyle = 'rgba(6,9,20,0.4)'
+  ctx.fill()
+  ctx.restore()
+  // base body
+  const g = ctx.createLinearGradient(cx, cy - ry, cx, cy + ry)
+  g.addColorStop(0, hxc(COLOR_LIGHT[color]))
+  g.addColorStop(0.55, hxc(COLOR_HEX[color]))
+  g.addColorStop(1, hxc(COLOR_DARK[color]))
+  ctx.beginPath()
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, 7)
+  ctx.fillStyle = g
+  ctx.fill()
+  ctx.lineWidth = 2 * S
+  ctx.strokeStyle = hxc(COLOR_DARK[color])
+  ctx.stroke()
+  // top gloss
+  ctx.beginPath()
+  ctx.ellipse(cx, cy - ry * 0.32, rx * 0.66, ry * 0.42, 0, 0, 7)
+  ctx.fillStyle = 'rgba(255,255,255,0.4)'
+  ctx.fill()
+  scene.textures.addCanvas(key, cv)
+  return key
+}
 
 // Character art is authored feet-on-the-bottom-edge; fit it to a target height.
 // Real Ludo pieces sit proudly on their square and overhang it a little - the
@@ -32,10 +79,10 @@ export const PawnsMixin = {
   makePawnView(color) {
     const c = this.add.container(0, 0).setDepth(20)
     c.setData('onBoard', false)
-    // soft contact shadow, drawn behind everything; sized in layoutPawnView
-    const restShadow = this.add.ellipse(0, 2, 34, 10, 0x0a0d20, 0.3)
-    restShadow.name = 'restShadow'
-    restShadow.setVisible(false)
+    // glossy token base - unifies the mismatched character art and carries its
+    // own soft shadow
+    const base = this.add.image(0, 8, pawnBaseTexture(this, color)).setDisplaySize(66, 33)
+    base.name = 'base'
     const glow = this.add.circle(0, -4, 28, COLOR_HEX[color], 0)
     glow.name = 'glow'
 
@@ -56,7 +103,7 @@ export const PawnsMixin = {
     token.add(sprite)
     const zone = this.add.zone(0, -14, 64, 74)
     zone.name = 'zone'
-    c.add([restShadow, glow, shield, token, zone])
+    c.add([base, glow, shield, token, zone])
     return c
   },
 
@@ -67,12 +114,10 @@ export const PawnsMixin = {
     const token = view.getByName('token')
     const sprite = token.getByName('sprite')
     this.tweens.killTweensOf(sprite)
-    sprite.setY(onBoard ? 24 : 12).setScale(fitSprite(sprite, onBoard ? TRACK_H : YARD_H))
+    sprite.setY(onBoard ? 22 : 12).setScale(fitSprite(sprite, onBoard ? TRACK_H : YARD_H))
+    view.getByName('base').setY(onBoard ? 16 : 8)
     view.getByName('shield').setY(onBoard ? -4 : -16)
     view.getByName('zone').setY(onBoard ? -4 : -14)
-    // contact shadow only when out on the track (yards paint their own ground)
-    const restShadow = view.getByName('restShadow')
-    restShadow.setVisible(onBoard).setPosition(0, onBoard ? 18 : 2)
   },
 
   animatePawn(pawn, from, to, onComplete) {
@@ -83,9 +128,6 @@ export const PawnsMixin = {
     ;[view, token, sprite].forEach(target => this.tweens.killTweensOf(target))
     token.setPosition(0, 0).setAngle(0).setScale(1)
     sprite.setScale(fitSprite(sprite, TRACK_H))
-    // the moving hop/glide draws its own shadow; hide the resting one until landing
-    const restShadow = view.getByName('restShadow')
-    restShadow.setVisible(false)
 
     const points = [{ x: view.x, y: view.y }]
     if (from === -1) points.push(this.getPixelFor(pawn.color, 0))
@@ -110,7 +152,6 @@ export const PawnsMixin = {
       pawn._cancelMotion = null
       view.setPosition(dest.x, dest.y).setScale(1).setDepth(restingDepth)
       token.setPosition(0, 0).setAngle(0).setScale(1)
-      restShadow.setVisible(pawn.steps >= 0)
       onComplete?.()
     }
     if (!count || prefersReducedMotion) {
@@ -195,7 +236,6 @@ export const PawnsMixin = {
     const token = view.getByName('token')
     this.tweens.killTweensOf(token)
     token.setPosition(0, 0).setAngle(0).setScale(1)
-    view.getByName('restShadow')?.setVisible(false)
     view.getByName('glow')?.setFillStyle(0xffffff, 0)
     this.markPawnHome(pawn)
     sfx.rune?.()
