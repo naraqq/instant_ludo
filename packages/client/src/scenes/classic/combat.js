@@ -49,7 +49,6 @@ export const CombatMixin = {
         const victim = this.pawnViews.get(pawn)
         const start = { x: victim.x, y: victim.y }
         this.playElementalSkill(attacker.color, victim.x, victim.y)
-        this.cameras.main.shake(130, 0.0025)
         pawn.steps = -1
         pawn.finished = false
         const home = this.getPawnPixel(pawn)

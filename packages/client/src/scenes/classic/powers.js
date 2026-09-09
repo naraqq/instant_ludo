@@ -707,6 +707,5 @@ export const PowersMixin = {
         onComplete: () => this.updateShieldVisuals(),
       })
     }
-    this.cameras.main.shake(120, 0.003)
   },
 }

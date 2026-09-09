@@ -3,7 +3,6 @@
 import Phaser from 'phaser'
 import { DUR, EASE, dur, prefersReducedMotion } from '../../ui/tokens.js'
 import { sfx } from '../../audio.js'
-import { samplePawnPath } from '../../ui/pawnMotion.js'
 import { COLOR_HEX, COLOR_LIGHT } from '@ludo/engine'
 import { TILE } from './constants.js'
 
@@ -112,73 +111,21 @@ export const PawnsMixin = {
       return
     }
 
-    // Punchy per-tile hops sell a pawn breaking out of its yard or nudging a
-    // single square; longer journeys read better as one continuous glide.
-    const leaving = from === -1
-    if (leaving || count === 1) {
-      this.hopPawn(view, token, points, count, leaving, dest, pawn.color, finish)
-    } else {
-      this.glidePawn(view, token, points, count, dest, pawn.color, finish)
-    }
-  },
-
-  // One smooth, eased journey through every tile - no per-square braking.
-  glidePawn(view, token, points, count, dest, color, finish) {
-    const startScale = view.getData('stackScale') ?? 1
-    const shadow = this.add.ellipse(view.x, view.y + 19, 30, 9, 0x10142b, .2).setDepth(19)
-    const marker = this.add.ellipse(dest.x, dest.y + 17, 32, 12, 0xffffff, 0)
-      .setStrokeStyle(2, COLOR_LIGHT[color], .65).setDepth(19)
-    const motion = { progress: 0 }
-    let reached = 0
-    this.tweens.add({
-      targets: motion, progress: 1,
-      duration: dur(Math.min(900, 200 + count * 65)),
-      ease: 'Sine.easeInOut',
-      onUpdate: () => {
-        const sample = samplePawnPath(points, motion.progress)
-        const lift = Math.sin(motion.progress * Math.PI)
-        view.setPosition(sample.x, sample.y)
-          .setScale(startScale + (1 - startScale) * Math.min(1, motion.progress * 5))
-        token.setY(-lift * (4 + Math.sin(sample.fraction * Math.PI) * 2))
-          .setAngle(sample.dx * 7 * lift)
-          .setScale(1 - Math.abs(sample.dy) * .025 * lift, 1 + .035 * lift)
-        shadow.setPosition(sample.x, sample.y + 19).setScale(1 - lift * .15).setAlpha(.2 - lift * .07)
-        while (reached < sample.reached) {
-          reached++
-          sfx.hop(reached - 1)
-          if (reached < count) {
-            const point = points[reached]
-            const trail = this.add.ellipse(point.x, point.y + 17, 19, 7, COLOR_HEX[color], .28).setDepth(18)
-            this.tweens.add({
-              targets: trail, alpha: 0, scale: .45, duration: dur(260),
-              onComplete: () => trail.destroy(),
-            })
-          }
-        }
-      },
-      onComplete: () => {
-        view.setPosition(dest.x, dest.y).setScale(1)
-        shadow.destroy()
-        this.tweens.add({
-          targets: marker, scale: 1.6, alpha: 0, duration: dur(220),
-          ease: EASE.out, onComplete: () => marker.destroy(),
-        })
-        token.setY(0).setAngle(0).setScale(1.06, .92)
-        this.tweens.add({
-          targets: token, scaleX: 1, scaleY: 1,
-          duration: dur(110), ease: 'Sine.easeOut', onComplete: finish,
-        })
-      },
-    })
+    // Every move is per-tile hops - a pawn jumps from square to square, however
+    // far it's going.
+    this.hopPawn(view, token, points, count, from === -1, dest, pawn.color, finish)
   },
 
   hopPawn(view, token, points, count, leaving, dest, color, finish) {
     // the pawn "picks up" out of its stack
     this.tweens.add({ targets: view, scale: 1, duration: dur(90), ease: EASE.pop })
 
-    // long paths hop a bit faster and lower so a six doesn't drag
-    const hopDur = dur(leaving ? 300 : Phaser.Math.Clamp(190 - count * 8, 116, 190))
-    const arc = leaving ? 50 : Phaser.Math.Clamp(36 - count * 1.6, 20, 36)
+    // long paths hop faster, lower and with tighter timing so a six doesn't drag
+    const long = count > 4
+    const hopDur = dur(leaving ? 300 : Phaser.Math.Clamp(180 - count * 12, 82, 180))
+    const crouchDur = dur(leaving ? 60 : long ? 26 : 46)
+    const gapDur = dur(leaving ? 45 : long ? 6 : 22)
+    const arc = leaving ? 50 : Phaser.Math.Clamp(36 - count * 1.6, 18, 36)
     const shadow = this.add.ellipse(view.x, view.y + 18, 30, 9, 0x0a0d20, 0.3).setDepth(19)
 
     const hop = (i) => {
@@ -195,7 +142,7 @@ export const PawnsMixin = {
       // quick anticipation crouch, then the arc
       this.tweens.add({
         targets: token, scaleX: 1.18, scaleY: 0.8,
-        duration: dur(leaving ? 60 : 46), ease: 'Quad.easeOut',
+        duration: crouchDur, ease: 'Quad.easeOut',
         onComplete: () => {
           this.tweens.add({
             targets: st, t: 1, duration: hopDur, ease: 'Sine.easeInOut',
@@ -213,7 +160,7 @@ export const PawnsMixin = {
             onComplete: () => {
               sfx.hop?.(i)
               this.pawnLand(view, token, b, color, false)
-              this.time.delayedCall(dur(leaving ? 45 : 22), () => hop(i + 1))
+              this.time.delayedCall(gapDur, () => hop(i + 1))
             },
           })
         },
@@ -253,7 +200,6 @@ export const PawnsMixin = {
         onComplete: () => puff.destroy(),
       })
     }
-    if (final) this.cameras.main.shake(dur(100), 0.0016)
   },
 
   positionPawn(pawn, animate) {
