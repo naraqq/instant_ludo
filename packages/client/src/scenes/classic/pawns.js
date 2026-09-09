@@ -88,33 +88,50 @@ export const PawnsMixin = {
     const points = [{ x: view.x, y: view.y }]
     if (from === -1) points.push(this.getPixelFor(pawn.color, 0))
     else for (let step = from + 1; step <= to; step++) points.push(this.getPixelFor(pawn.color, step))
-    // a finishing pawn glides to its own parking spot in the centre triangle,
-    // not the shared dead-centre point getPixelFor returns for step 56
-    if (pawn.finished && points.length > 1) points[points.length - 1] = this.getFinishSlot(pawn)
+    // Where this pawn actually comes to rest: a finishing pawn parks in its
+    // centre-triangle slot; any other pawn glides straight into its fan-out slot
+    // on the destination square, so it slots into a stack instead of landing on
+    // the pile and being shuffled apart a beat later.
+    const slot = pawn.finished ? null : this.stackSlotFor(pawn, { stable: true })
+    const landScale = slot ? slot.scale : 1
+    if (points.length > 1) {
+      if (pawn.finished) points[points.length - 1] = this.getFinishSlot(pawn)
+      else if (slot) points[points.length - 1] = { x: slot.x, y: slot.y }
+    }
     const count = points.length - 1
     const dest = points[count]
     const restingDepth = 20
-    view.setDepth(40).setAlpha(1).setScale(1)
+    const startScale = view.scaleX || 1
+    view.setDepth(40).setAlpha(1).setScale(startScale)
+    // open up the rest of the board now - origin stack closes, destination stack
+    // makes room - so everyone settles together with the moving pawn. A
+    // finishing pawn leaves the board entirely (parkFinishedPawn), so skip it.
+    if (count && !pawn.finished) this.reflowPawns(!prefersReducedMotion, pawn)
 
     let motion
+    const settle = (killToken = true) => {
+      if (killToken) this.tweens.killTweensOf(token)
+      token.setPosition(0, 0).setAngle(0).setScale(1)
+      view.setScale(landScale)
+      view.setData?.('stackScale', landScale)
+      if (slot) view.setData?.('stackOffset', slot.offset)
+      shadowEl?.setVisible(pawn.steps >= 0)
+    }
     pawn._cancelMotion = () => {
       motion?.stop?.()
-      this.tweens.killTweensOf(token)
-      token.setPosition(0, 0).setAngle(0).setScale(1)
-      shadowEl?.setVisible(pawn.steps >= 0)
+      settle()
       pawn._cancelMotion = null
       onComplete?.()
     }
     const finish = () => {
       pawn._cancelMotion = null
-      view.setPosition(dest.x, dest.y).setScale(1).setDepth(restingDepth)
-      token.setPosition(0, 0).setAngle(0).setScale(1)
-      shadowEl?.setVisible(pawn.steps >= 0)
+      view.setPosition(dest.x, dest.y).setDepth(restingDepth)
+      settle()
       onComplete?.()
     }
     if (!count || prefersReducedMotion) {
       motion = this.tweens.add({
-        targets: view, x: dest.x, y: dest.y,
+        targets: view, x: dest.x, y: dest.y, scale: landScale,
         duration: dur(150), ease: EASE.out, onComplete: finish,
       })
       return
@@ -130,6 +147,7 @@ export const PawnsMixin = {
       onUpdate: () => {
         const point = samplePawnPath(points, journey.progress)
         view.setPosition(point.x, point.y)
+        if (landScale !== startScale) view.setScale(Phaser.Math.Linear(startScale, landScale, journey.progress))
         token.setY(-Math.sin(point.fraction * Math.PI) * (from === -1 ? 26 : 10))
         if (point.reached > reached) { reached = point.reached; sfx.hop?.(reached) }
       },
@@ -214,24 +232,22 @@ export const PawnsMixin = {
     })
   },
 
-  reflowPawns(animate) {
-    const groups = new Map()
-    this.pawns.forEach((pawn) => {
-      if (pawn.finished) {
-        // retired by parkFinishedPawn; a bare state-snap rebuild lands here too
-        const v = this.pawnViews.get(pawn)
-        if (v && v.visible && !this.tweens.isTweening(v)) v.setVisible(false).setAlpha(0)
-        return
-      }
-      const key = this.getPawnStackKey(pawn)
-      if (!groups.has(key)) groups.set(key, [])
-      groups.get(key).push(pawn)
+  // `skip` is the pawn currently gliding under animatePawn - its own tween is
+  // already carrying it to the right slot, so leave it be while the rest of the
+  // board opens up around it.
+  reflowPawns(animate, skip = null) {
+    ;(this.pawns || []).forEach((pawn) => {
+      if (!pawn.finished) return
+      // retired by parkFinishedPawn; a bare state-snap rebuild lands here too
+      const v = this.pawnViews.get(pawn)
+      if (v && v.visible && !this.tweens.isTweening(v)) v.setVisible(false).setAlpha(0)
     })
 
-    groups.forEach((stack) => {
+    this.pawnStacks().forEach((stack) => {
       const offsets = this.getStackOffsets(stack.length)
       const scale = this.getStackScale(stack.length)
       stack.forEach((pawn, index) => {
+        if (pawn === skip) return
         const view = this.pawnViews.get(pawn)
         this.layoutPawnView(pawn, view)
         const base = this.getPawnPixel(pawn)

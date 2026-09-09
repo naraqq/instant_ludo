@@ -6,7 +6,7 @@ import { START_INDEX } from '@ludo/engine'
 // House-rule knobs now live in the headless engine so the scene and an
 // authoritative server can never drift apart. Re-exported here for the scene
 // modules that still import them from this file.
-export { SIX_PITY_LIMIT, TURN_SECONDS, MOVE_SECONDS } from '@ludo/engine'
+export { SIX_PITY_LIMIT, SIX_PITY_NUDGE, TURN_SECONDS, MOVE_SECONDS } from '@ludo/engine'
 
 // The board spans the full width (15 tiles = 720px) and sits centred; the strips
 // above and below scale with the (viewport-matched) canvas height and carry the

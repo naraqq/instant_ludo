@@ -106,9 +106,11 @@ export function buildBoardCanvas({ simple = false } = {}) {
     const hys = y + cell
     const hw = 4 * cell
     ctx.save()
-    ctx.shadowColor = simple ? 'rgba(20,30,50,0.14)' : 'rgba(0,0,0,0.35)'
-    ctx.shadowBlur = (simple ? 3 : 12) * S
-    ctx.shadowOffsetY = (simple ? 1 : 5) * S
+    if (!simple) {
+      ctx.shadowColor = 'rgba(0,0,0,0.35)'
+      ctx.shadowBlur = 12 * S
+      ctx.shadowOffsetY = 5 * S
+    }
     rr(ctx, hxs, hys, hw, hw, 22 * S)
     ctx.fillStyle = simple ? rgba(COLOR_DARK[color], 0.46) : hx(COLOR_SURFACE[color])
     ctx.fill()
@@ -273,10 +275,12 @@ export function buildBoardCanvas({ simple = false } = {}) {
 
   // outer frame
   ctx.restore() // undo clip
-  rr(ctx, 1.5 * S, 1.5 * S, size - 3 * S, size - 3 * S, 29 * S)
-  ctx.strokeStyle = 'rgba(255,255,255,0.7)'
-  ctx.lineWidth = 3 * S
-  ctx.stroke()
+  if (!simple) {
+    rr(ctx, 1.5 * S, 1.5 * S, size - 3 * S, size - 3 * S, 29 * S)
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'
+    ctx.lineWidth = 3 * S
+    ctx.stroke()
+  }
 
   return cv
 }

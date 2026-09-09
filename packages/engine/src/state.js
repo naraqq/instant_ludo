@@ -54,8 +54,8 @@ export function createGame(config = {}) {
     inventory: perColor(colors, () => ({ ...startInv })),
     shielded: perColor(colors, () => false),
     shieldExpiresOnRoll: perColor(colors, () => false),
-    pity: perColor(colors, () => 0),
-    pityForced: perColor(colors, () => false),
+    pity: perColor(colors, () => 0), // straight non-6 rolls
+    pityForced: perColor(colors, () => false), // past the limit: rolls get a soft nudge toward 6
     sixRun: perColor(colors, () => 0), // consecutive sixes this turn (3rd is void)
     captures: perColor(colors, () => 0),
     pendingGate: null,

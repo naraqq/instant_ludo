@@ -1,6 +1,6 @@
 // Board coordinate system: grid <-> pixel conversion, pawn cell resolution and
 // stack layout. Pure lookups against the board data + layout constants.
-import { START_INDEX, TRACK, HOME_LANES, YARDS } from '@ludo/engine'
+import { START_INDEX, TRACK, HOME_LANES, YARDS, SAFE_STOPS } from '@ludo/engine'
 import { TILE, BOARD_X, BOARD_Y } from './constants.js'
 
 // The spot a pawn glides to as it reaches home, before it takes its bow and
@@ -26,6 +26,38 @@ export const GeometryMixin = {
       [cols[0], rows[1]],
       [cols[1], rows[1]],
     ]
+  },
+
+  // Every occupied cell -> the pawns sharing it, in board order. The single
+  // basis for stack fan-out: reflowPawns spreads each group, and a pawn gliding
+  // in aims straight at the slot it will hold here.
+  pawnStacks() {
+    const groups = new Map()
+    for (const pawn of this.pawns || []) {
+      if (pawn.finished) continue
+      const key = this.getPawnStackKey(pawn)
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(pawn)
+    }
+    return groups
+  },
+
+  // Where `pawn` comes to rest on its current cell once the stack settles:
+  // absolute pixel position, its fan-out offset and the group's shared scale.
+  // `stable` drops enemies that a landing here would capture, so a pawn moving
+  // onto an occupied square glides to its real slot, not a slot it only shares
+  // for the split second before the capture clears.
+  stackSlotFor(pawn, { stable = false } = {}) {
+    let stack = this.pawnStacks().get(this.getPawnStackKey(pawn)) ?? [pawn]
+    if (stable) {
+      const cell = this.getPawnCell(pawn)
+      const safe = cell.type !== 'track' || SAFE_STOPS.has(cell.index)
+      if (!safe) stack = stack.filter((p) => p.color === pawn.color)
+    }
+    const index = Math.max(0, stack.indexOf(pawn))
+    const offset = this.getStackOffsets(stack.length)[index] ?? { x: 0, y: 0 }
+    const base = this.getPawnPixel(pawn)
+    return { x: base.x + offset.x, y: base.y + offset.y, offset, scale: this.getStackScale(stack.length) }
   },
 
   getPawnStackKey(pawn) {

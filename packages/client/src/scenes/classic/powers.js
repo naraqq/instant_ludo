@@ -729,34 +729,40 @@ export const PowersMixin = {
   showGatePicker(color, onPick) {
     if (this.gatePicker) this.closeGatePicker()
 
-    const panelW = 372
-    const panelH = 268
-    const tileW = 106
-    const tileH = 154
-    const xs = [-116, 0, 116] // one row of three
+    const panelW = 396
+    const panelH = 196
+    const tileW = 112
+    const tileH = 138
+    const xs = [-124, 0, 124] // one row of three
     const panelY = H / 2
+    const tileY = 12
 
     const overlay = this.add.container(0, 0).setDepth(120)
     // A scrim over the board: the pick is mandatory, so tapping anywhere but a
     // rune tile just nudges the picker (it doesn't auto-resolve or dismiss).
-    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.44).setInteractive()
+    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.5).setInteractive()
     dim.on('pointerup', () => this.bumpGatePicker())
     overlay.add(dim)
     this._gatePickerDim = dim
 
+    // shade a base tint toward white (f > 0) or black (f < 0)
+    const shade = (hex, f) => {
+      const p = (v) => Math.max(0, Math.min(255, Math.round(f < 0 ? v * (1 + f) : v + (255 - v) * f)))
+      return (p((hex >> 16) & 0xff) << 16) | (p((hex >> 8) & 0xff) << 8) | p(hex & 0xff)
+    }
+
     const panel = this.add.container(W / 2, panelY)
     overlay.add(panel)
     this._gatePickerPanel = panel
-    this.makeRoundedRectTexture('gate-panel', panelW, panelH, 0x21394f, 0x102237, 28, 0x65859b)
-    panel.add(this.add.image(0, 0, 'gate-panel').setAlpha(0.99))
-    panel.add(this.add.text(0, -panelH / 2 + 34, t('classic.gateTitle'), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#efe8ff', fontStyle: 'bold',
-    }).setOrigin(0.5))
+    this.makeRoundedRectTexture('gate-panel-v2', panelW, panelH, 0x24405c, 0x0c1a2b, 30, 0xffd98a)
+    panel.add(this.add.image(0, 0, 'gate-panel-v2').setAlpha(0.995))
+    // lit bevel along the top edge - reads as a raised card, not a dialog
+    panel.add(this.add.rectangle(0, -panelH / 2 + 7, panelW - 48, 2, 0xffffff, 0.16))
+    panel.add(this.add.text(0, -panelH / 2 + 22, t('classic.gateTitle'), {
+      fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#cdddf0', fontStyle: 'bold',
+    }).setOrigin(0.5).setAlpha(0.85))
     // swallow taps on the panel body; there is no cancel - a pick is mandatory
     overlay.add(this.add.zone(W / 2, panelY, panelW, panelH).setInteractive())
-
-    this.makeRoundedRectTexture('gate-tile', tileW, tileH, 0x2b4860, 0x1c334b, 18, 0x4d728d)
-    this.makeRoundedRectTexture('gate-tile-hot', tileW, tileH, 0x3e708b, 0x2b4860, 18, 0x9cdfec)
 
     let done = false
     const choose = (key) => {
@@ -778,35 +784,41 @@ export const PowersMixin = {
     this._gatePickChoose = choose
 
     const tiles = []
-    const gy = -panelH / 2 + 46 + tileH / 2
     GATE_RUNES.forEach((key, i) => {
       const gx = xs[i]
-      const slot = this.add.container(gx, gy).setData('baseScale', 1)
-      const bg = this.add.image(0, 0, 'gate-tile')
+      const tint = POWER_META[key].tint
+      // colour-washed cards so the modal reads as part of the game, not chrome
+      this.makeRoundedRectTexture(`gate-card-${key}`, tileW, tileH, shade(tint, 0.14), shade(tint, -0.52), 20, shade(tint, 0.5))
+      this.makeRoundedRectTexture(`gate-card-${key}-hot`, tileW, tileH, shade(tint, 0.36), shade(tint, -0.26), 20, 0xffffff)
+
+      const slot = this.add.container(gx, tileY)
+      const bg = this.add.image(0, 0, `gate-card-${key}`)
       bg.name = 'bg'
-      const icon = this.add.image(0, -26, powerRuneTexture(this, key)).setDisplaySize(64, 64)
-      const name = this.add.text(0, 22, POWER_META[key].name, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#ffffff', fontStyle: 'bold',
-      }).setOrigin(0.5)
-      const blurb = this.add.text(0, 46, POWER_META[key].blurb, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 9.5, color: '#a9c0d6',
-        align: 'center', wordWrap: { width: tileW - 14 },
-      }).setOrigin(0.5)
-      slot.add([bg, icon, name, blurb])
+      const halo = this.add.circle(0, -14, 36, 0xffffff, 0.14)
+      halo.name = 'halo'
+      const icon = this.add.image(0, -14, powerRuneTexture(this, key)).setDisplaySize(78, 78)
+      // one word, no blurb - the coin carries the meaning
+      const name = this.add.text(0, tileH / 2 - 22, POWER_META[key].name, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 14, color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(0.5).setShadow(0, 1, 'rgba(0,0,0,0.45)', 2)
+      slot.add([bg, halo, icon, name])
       panel.add(slot)
       tiles.push(slot)
-      const zone = this.add.zone(W / 2 + gx, panelY + gy, tileW, tileH).setInteractive({ useHandCursor: true })
+
+      const zone = this.add.zone(W / 2 + gx, panelY + tileY, tileW, tileH).setInteractive({ useHandCursor: true })
       zone.on('pointerover', () => {
-        bg.setTexture('gate-tile-hot')
-        this.tweens.add({ targets: slot, scale: 1.06, duration: dur(90), ease: EASE.out })
+        bg.setTexture(`gate-card-${key}-hot`)
+        this.tweens.add({ targets: slot, scale: 1.07, y: tileY - 6, duration: dur(110), ease: EASE.out })
+        this.tweens.add({ targets: halo, alpha: 0.3, duration: dur(110) })
       })
       zone.on('pointerout', () => {
-        bg.setTexture('gate-tile')
-        this.tweens.add({ targets: slot, scale: 1, duration: dur(90), ease: EASE.out })
+        bg.setTexture(`gate-card-${key}`)
+        this.tweens.add({ targets: slot, scale: 1, y: tileY, duration: dur(110), ease: EASE.out })
+        this.tweens.add({ targets: halo, alpha: 0.14, duration: dur(110) })
       })
       zone.on('pointerdown', () => {
         if (!this.room) sfx.tap()
-        this.tweens.add({ targets: slot, scale: 0.94, duration: dur(70) })
+        this.tweens.add({ targets: slot, scale: 0.95, duration: dur(70) })
       })
       zone.on('pointerup', () => choose(key))
       overlay.add(zone)
@@ -818,7 +830,7 @@ export const PowersMixin = {
 
     if (!prefersReducedMotion) {
       dim.setAlpha(0)
-      this.tweens.add({ targets: dim, alpha: 0.44, duration: dur(DUR.fast) })
+      this.tweens.add({ targets: dim, alpha: 0.5, duration: dur(DUR.fast) })
       panel.setScale(0.84)
       this.tweens.add({ targets: panel, scale: 1, duration: dur(DUR.base), ease: EASE.pop })
       tiles.forEach((slot, i) => {

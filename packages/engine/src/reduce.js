@@ -2,7 +2,7 @@
 // Pure: never mutates its input. `events` is an ordered list the client plays
 // out as animation; the server just broadcasts state + events.
 import { FINISH_STEPS, GATE_INDEXES, START_INDEX } from './board.js'
-import { SIX_PITY_LIMIT, GATE_RUNES } from './constants.js'
+import { SIX_PITY_LIMIT, SIX_PITY_NUDGE, GATE_RUNES } from './constants.js'
 import { cloneState } from './state.js'
 import { rngInt, rngPick } from './rng.js'
 import {
@@ -127,10 +127,14 @@ function doRoll(s, events, explicitValue) {
     raw = explicitValue
   } else if (s.forcedValue != null) {
     raw = s.forcedValue
-  } else if (s.pityForced[color]) {
-    raw = 6
   } else {
     ;[raw, s.rng] = rngInt(s.rng, 1, 6)
+    // soft pity: a long six-drought only earns a nudge, never a guaranteed 6
+    if (raw !== 6 && s.pityForced[color]) {
+      let nudge
+      ;[nudge, s.rng] = rngInt(s.rng, 1, 100)
+      if (nudge <= SIX_PITY_NUDGE) raw = 6
+    }
   }
   s.forcedValue = null
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createGame, reduce, publicView, legalMoves, currentColor } from '../src/index.js'
+import { SIX_PITY_LIMIT } from '../src/constants.js'
 import { START_INDEX } from '../src/board.js'
 
 // The engine is framework-free, so these tests import it straight - no stubs.
@@ -207,18 +208,30 @@ test('landing on a "+1" rune grants an extra roll and the rune moves on', () => 
   assert.equal(events.find((e) => e.t === 'turn').extra, 'air')
 })
 
-test('pity: three straight non-6s force a 6', () => {
+test('soft pity: a long six-drought arms a nudge, not a guaranteed 6', () => {
   let s = game()
-  s = step(s, { type: 'roll', value: 2 }).state // blue, non-6, no move -> red
-  s = step(s, { type: 'roll', value: 2 }).state // red -> blue
-  s = step(s, { type: 'roll', value: 2 }).state // blue (2nd) -> red
-  s = step(s, { type: 'roll', value: 2 }).state // red -> blue
-  s = step(s, { type: 'roll', value: 2 }).state // blue (3rd) -> red
-  s = step(s, { type: 'roll', value: 2 }).state // red -> blue
+  // blue rolls a non-6 every other turn until it hits the pity limit
+  for (let i = 0; i < SIX_PITY_LIMIT; i++) {
+    s = step(s, { type: 'roll', value: 2 }).state // blue: non-6, no move -> red
+    s = step(s, { type: 'roll', value: 2 }).state // red -> blue
+  }
+  assert.equal(s.pity.blue, SIX_PITY_LIMIT)
   assert.equal(s.pityForced.blue, true)
-  const forced = step(s, { type: 'roll' }) // no explicit value -> pity kicks in
-  assert.equal(forced.events[0].raw, 6)
-  assert.equal(forced.state.pityForced.blue, false)
+
+  // once armed, pity rolls are *biased* toward 6 but not forced: across many
+  // seeds we still see some non-sixes, and the six-rate sits well above 1/6.
+  let sixes = 0
+  const trials = 400
+  for (let seed = 0; seed < trials; seed++) {
+    let d = game({ seed })
+    for (let i = 0; i < SIX_PITY_LIMIT; i++) {
+      d = step(d, { type: 'roll', value: 2 }).state
+      d = step(d, { type: 'roll', value: 2 }).state
+    }
+    if (step(d, { type: 'roll' }).events[0].raw === 6) sixes++
+  }
+  assert.ok(sixes > 0 && sixes < trials, `pity roll not deterministic (${sixes}/${trials})`)
+  assert.ok(sixes / trials > 1 / 6, `pity should raise the six-rate (${sixes}/${trials})`)
 })
 
 test('first player home wins', () => {

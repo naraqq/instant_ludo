@@ -3,7 +3,7 @@
 // playing the roll when only one move is legal). Plus the flat dice textures.
 import Phaser from 'phaser'
 import { prefersReducedMotion } from '../../ui/tokens.js'
-import { SIX_PITY_LIMIT } from './constants.js'
+import { SIX_PITY_LIMIT, SIX_PITY_NUDGE } from './constants.js'
 
 export const DiceMixin = {
   rollDice() {
@@ -26,17 +26,21 @@ export const DiceMixin = {
       this.updateShieldVisuals()
     }
     const forcedValue = this.forcedDiceValue
-    const guaranteedSix = this.sixForced.has(color)
+    const softPity = this.sixForced.has(color)
     const doubleActive = this.doubleNextRoll
     this.forcedDiceValue = null
     this.doubleNextRoll = false
-    const rawValue = forcedValue ?? (guaranteedSix ? 6 : Phaser.Math.Between(1, 6))
+    let rawValue = forcedValue ?? Phaser.Math.Between(1, 6)
+    // soft pity: a long six-drought only earns a nudge, never a guaranteed 6
+    if (forcedValue == null && rawValue !== 6 && softPity && Phaser.Math.Between(1, 100) <= SIX_PITY_NUDGE) {
+      rawValue = 6
+    }
 
     // a Control-chosen value isn't a roll - snap the die onto it, no tumble
     this.animateDiceTumble(color, rawValue, { doubled: doubleActive, snap: forcedValue != null }).then(() => {
       this.rawDiceValue = rawValue
       this.diceValue = doubleActive ? rawValue * 2 : rawValue
-      // "1-in-N" pity: never more than SIX_PITY_LIMIT non-sixes in a row
+      // soft pity: past SIX_PITY_LIMIT straight non-sixes, rolls get a nudge toward 6
       if (rawValue === 6) {
         this.sixPity[color] = 0
         this.sixForced.delete(color)

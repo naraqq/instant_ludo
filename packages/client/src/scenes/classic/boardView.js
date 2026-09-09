@@ -62,14 +62,20 @@ export const BoardViewMixin = {
     }
     const cx = BOARD_X + BOARD_SIZE / 2
     const cy = BOARD_Y + BOARD_SIZE / 2
-    // drop shadow so the board sits ON the arena
-    const shadow = this.add.image(cx, cy + 8, boardTexture).setDisplaySize(BOARD_SIZE, BOARD_SIZE)
-      .setTint(0x000000).setAlpha(0.35)
     const board = this.add.image(cx, cy, boardTexture).setDisplaySize(BOARD_SIZE, BOARD_SIZE)
     // the online scene rotates the whole board so the local player sits bottom-left
     const rot = (this._boardRot | 0) % 4
-    if (rot) { shadow.setAngle(rot * 90); board.setAngle(rot * 90) }
-    this.boardLayer.add([shadow, board])
+    // online mode sits flat on the arena: no drop shadow behind the board
+    if (this.simpleBoardStyle) {
+      if (rot) board.setAngle(rot * 90)
+      this.boardLayer.add(board)
+    } else {
+      // drop shadow so the board sits ON the arena
+      const shadow = this.add.image(cx, cy + 8, boardTexture).setDisplaySize(BOARD_SIZE, BOARD_SIZE)
+        .setTint(0x000000).setAlpha(0.35)
+      if (rot) { shadow.setAngle(rot * 90); board.setAngle(rot * 90) }
+      this.boardLayer.add([shadow, board])
+    }
 
     this.createQuadrantFx()
   },
