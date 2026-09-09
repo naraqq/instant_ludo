@@ -120,80 +120,66 @@ export const PawnsMixin = {
     // the pawn "picks up" out of its stack
     this.tweens.add({ targets: view, scale: 1, duration: dur(90), ease: EASE.pop })
 
-    // long paths hop faster, lower and with tighter timing so a six doesn't drag
+    // a plain step-to-step hop: lift straight up a touch, translate, set down.
+    // No squash, no lean, no per-tile dust - long paths just go a little faster.
     const long = count > 4
-    const hopDur = dur(leaving ? 300 : Phaser.Math.Clamp(180 - count * 12, 82, 180))
-    const crouchDur = dur(leaving ? 60 : long ? 26 : 46)
-    const gapDur = dur(leaving ? 45 : long ? 6 : 22)
-    const arc = leaving ? 50 : Phaser.Math.Clamp(36 - count * 1.6, 18, 36)
-    const shadow = this.add.ellipse(view.x, view.y + 18, 30, 9, 0x0a0d20, 0.3).setDepth(19)
+    const hopDur = dur(leaving ? 240 : Phaser.Math.Clamp(150 - count * 10, 74, 150))
+    const gapDur = dur(leaving ? 40 : long ? 4 : 12)
+    const arc = leaving ? 30 : long ? 11 : 16
+    const shadow = this.add.ellipse(view.x, view.y + 18, 28, 8, 0x0a0d20, 0.26).setDepth(19)
 
     const hop = (i) => {
       if (i >= count) {
         shadow.destroy()
-        this.pawnLand(view, token, dest, color, true)
-        this.time.delayedCall(dur(90), finish)
+        this.pawnLand(view, token, dest, color)
+        this.time.delayedCall(dur(60), finish)
         return
       }
       const a = points[i]
       const b = points[i + 1]
-      const lean = Math.sign(b.x - a.x) * 11 + Math.sign(b.y - a.y) * 4
       const st = { t: 0 }
-      // quick anticipation crouch, then the arc
       this.tweens.add({
-        targets: token, scaleX: 1.18, scaleY: 0.8,
-        duration: crouchDur, ease: 'Quad.easeOut',
+        targets: st, t: 1, duration: hopDur, ease: 'Sine.easeInOut',
+        onUpdate: () => {
+          const lift = Math.sin(st.t * Math.PI)
+          view.setPosition(a.x + (b.x - a.x) * st.t, a.y + (b.y - a.y) * st.t)
+          token.setY(-arc * lift)
+          shadow.setPosition(view.x, view.y + 18).setScale(1 - lift * 0.3).setAlpha(0.26 - lift * 0.13)
+        },
         onComplete: () => {
-          this.tweens.add({
-            targets: st, t: 1, duration: hopDur, ease: 'Sine.easeInOut',
-            onUpdate: () => {
-              const t = st.t
-              const lift = Math.sin(t * Math.PI)
-              view.setPosition(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
-              token.setY(-arc * lift * lift ** 0.15) // slightly front-loaded arc
-                .setAngle(lean * lift * (1 - t * 0.35))
-                .setScale(1 - 0.16 * lift + 0.06 * t, 1 + 0.24 * lift - 0.06 * t)
-              shadow.setPosition(view.x, view.y + 18)
-                .setScale(1 - lift * 0.45, 1 - lift * 0.6)
-                .setAlpha(0.3 - lift * 0.2)
-            },
-            onComplete: () => {
-              sfx.hop?.(i)
-              this.pawnLand(view, token, b, color, false)
-              this.time.delayedCall(gapDur, () => hop(i + 1))
-            },
-          })
+          token.setY(0)
+          sfx.hop?.(i)
+          this.time.delayedCall(gapDur, () => hop(i + 1))
         },
       })
     }
     hop(0)
   },
 
-  // impact on landing a tile: squash + ground ring + a puff of dust
-  pawnLand(view, token, at, color, final) {
+  // The pawn's final settle onto its destination square: a soft ground ring and
+  // a small puff of dust, plus a gentle squash-and-recover.
+  pawnLand(view, token, at, color) {
     this.tweens.killTweensOf(token)
-    token.setPosition(0, 0).setAngle(0).setScale(final ? 1.32 : 1.22, final ? 0.68 : 0.8)
+    token.setPosition(0, 0).setAngle(0).setScale(1.1, 0.92)
     this.tweens.add({
       targets: token, scaleX: 1, scaleY: 1,
-      duration: dur(final ? 260 : 130),
-      ease: final ? EASE.pop : 'Back.easeOut',
+      duration: dur(200), ease: EASE.pop,
     })
     const ring = this.add.ellipse(at.x, at.y + 16, 18, 7, 0xffffff, 0)
       .setStrokeStyle(2.5, COLOR_LIGHT[color], 0.75).setDepth(19)
     this.tweens.add({
-      targets: ring, scaleX: final ? 3.2 : 2, scaleY: final ? 3.2 : 2, alpha: 0,
-      duration: dur(final ? 340 : 210), ease: EASE.out,
+      targets: ring, scaleX: 3, scaleY: 3, alpha: 0,
+      duration: dur(320), ease: EASE.out,
       onComplete: () => ring.destroy(),
     })
-    const puffs = final ? 6 : 2
-    for (let k = 0; k < puffs; k++) {
+    for (let k = 0; k < 5; k++) {
       const puff = this.add.circle(
         at.x + Phaser.Math.Between(-5, 5), at.y + 15,
-        Phaser.Math.Between(2, 4), 0xdfe4f2, 0.55
+        Phaser.Math.Between(2, 4), 0xdfe4f2, 0.5
       ).setDepth(18)
       this.tweens.add({
         targets: puff,
-        x: puff.x + Phaser.Math.Between(-18, 18),
+        x: puff.x + Phaser.Math.Between(-16, 16),
         y: puff.y - Phaser.Math.Between(1, 9),
         alpha: 0, scale: 0.2,
         duration: dur(Phaser.Math.Between(200, 300)), ease: EASE.out,
