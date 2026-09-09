@@ -449,9 +449,14 @@ export class NetLudoScene extends UIScene {
     this.forcedDiceValue = null
     this._animating = true
     this.updatePawnHighlights()
-    // spin the die right now; playRoll() lands it on the server's value
-    this._windup = this.diceWindup(this.myColor, { doubled: this.doubleNextRoll })
-    if (forced != null) this.room.send('action', { type: 'usePower', key: 'water', value: forced })
+    if (forced != null) {
+      // Control: the value's already chosen - no wind-up, playRoll() snaps it in
+      this._snapRoll = true
+      this.room.send('action', { type: 'usePower', key: 'water', value: forced })
+    } else {
+      // spin the die right now; playRoll() lands it on the server's value
+      this._windup = this.diceWindup(this.myColor, { doubled: this.doubleNextRoll })
+    }
     this.room.send('action', { type: 'roll' })
   }
 
@@ -602,7 +607,9 @@ export class NetLudoScene extends UIScene {
       this._windup.stop?.()
       this._windup = null
     }
-    return this.animateDiceTumble(ev.color, ev.raw, { doubled: Boolean(ev.doubled), instant: this._behind })
+    const snap = this._snapRoll && ev.color === this.myColor
+    this._snapRoll = false
+    return this.animateDiceTumble(ev.color, ev.raw, { doubled: Boolean(ev.doubled), instant: this._behind, snap })
   }
 
   playPowerUsed(ev) {

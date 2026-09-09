@@ -32,7 +32,8 @@ export const DiceMixin = {
     this.doubleNextRoll = false
     const rawValue = forcedValue ?? (guaranteedSix ? 6 : Phaser.Math.Between(1, 6))
 
-    this.animateDiceTumble(color, rawValue, { doubled: doubleActive }).then(() => {
+    // a Control-chosen value isn't a roll - snap the die onto it, no tumble
+    this.animateDiceTumble(color, rawValue, { doubled: doubleActive, snap: forcedValue != null }).then(() => {
       this.rawDiceValue = rawValue
       this.diceValue = doubleActive ? rawValue * 2 : rawValue
       // "1-in-N" pity: never more than SIX_PITY_LIMIT non-sixes in a row

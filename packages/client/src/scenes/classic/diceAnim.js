@@ -79,10 +79,24 @@ export const DiceAnimMixin = {
   },
 
   // Tumble `this.cornerDice[color]` to `rawValue`; resolves when it lands.
-  animateDiceTumble(color, rawValue, { doubled = false, instant = false } = {}) {
+  // `instant`: no visuals at all (catch-up). `snap`: the value was chosen, not
+  // rolled - drop it in with a bounce and a pop, no tumble.
+  animateDiceTumble(color, rawValue, { doubled = false, instant = false, snap = false } = {}) {
     const dice = this.cornerDice?.[color]
     if (!dice) return Promise.resolve()
     if (instant) { this.restDice(color, rawValue, { doubled }); return Promise.resolve() }
+    if (snap) {
+      this.restDice(color, rawValue, { doubled })
+      if (prefersReducedMotion) return Promise.resolve()
+      const t = dice.container
+      dice.face.setScale(1.28)
+      if (doubled) dice.face2.setScale(1.28)
+      this.tweens.add({ targets: [dice.face, dice.face2], scaleX: 1, scaleY: 1, duration: 240, ease: 'Back.easeOut' })
+      this.popAt?.(t.x, t.y + 20, COLOR_HEX[color])
+      sfx.land?.(rawValue)
+      sfx.buzz?.(14)
+      return new Promise((r) => this.time.delayedCall(260, r))
+    }
 
     const tray = dice.container
     const trayY = (this.podFor?.(color) ?? POD[color]).dy

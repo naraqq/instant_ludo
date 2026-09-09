@@ -311,22 +311,29 @@ export const PowersMixin = {
       this.forcedDiceValue = value
       this.controllerPicker = null
       this.flashPower('water')
-      this.playPowerEffect(color, 'water')
       sfx.power()
       this.updatePowerButtons()
-      // Fly the chosen face up to the corner tray, then roll it for real.
+      overlay.destroy()
+      // The chosen face flies straight to the corner tray and snaps in - then
+      // the roll resolves with no tumble (you chose it; it isn't random).
       const tray = this.cornerDice[color]?.container
+      const tx = tray ? tray.x : W / 2
+      const ty = tray ? tray.y : panelY - 220
+      if (prefersReducedMotion || !tray) { this.rollDice(); return }
       const chosen = this.add.graphics().setPosition(W / 2, panelY).setDepth(121).setScale(1)
       drawRestingDice(chosen, value)
-      overlay.destroy()
       this.tweens.add({
-        targets: chosen,
-        x: tray ? tray.x : W / 2,
-        y: tray ? tray.y : panelY - 220,
-        scale: 0.5,
-        duration: dur(prefersReducedMotion ? 120 : 320),
-        ease: EASE.inOut,
-        onComplete: () => { chosen.destroy(); this.playDiceLock(tray, value) },
+        targets: chosen, x: tx, y: ty, scale: 0.5,
+        duration: dur(280), ease: 'Cubic.easeIn',
+        onComplete: () => {
+          chosen.destroy()
+          const ring = this.add.circle(tx, ty, 18, 0x9ff0ff, 0).setStrokeStyle(4, 0x9ff0ff, 0.9).setDepth(60)
+          this.tweens.add({
+            targets: ring, radius: 42, alpha: { from: 0.9, to: 0 },
+            duration: dur(260), ease: 'Cubic.easeOut', onComplete: () => ring.destroy(),
+          })
+          this.rollDice()
+        },
       })
     }
 
@@ -380,33 +387,6 @@ export const PowersMixin = {
   closeControllerPicker() {
     this.controllerPicker?.destroy()
     this.controllerPicker = null
-  },
-
-  // After a Control pick: a short beat that reads "the die is set to N", then
-  // the roll fires for real.
-  playDiceLock(tray, value) {
-    if (prefersReducedMotion) { this.rollDice(); return }
-    const x = tray ? tray.x : W / 2
-    const y = tray ? tray.y : 320
-    sfx.power?.()
-    const die = this.add.graphics().setPosition(x, y).setDepth(121).setScale(0.5)
-    drawRestingDice(die, value)
-    this.tweens.add({ targets: die, scale: { from: 0.74, to: 0.5 }, duration: dur(240), ease: EASE.pop })
-    const ring = this.add.circle(x, y, 46, 0x9ff0ff, 0).setStrokeStyle(4, 0x9ff0ff, 0.95).setDepth(122)
-    this.tweens.add({
-      targets: ring, radius: 23, alpha: { from: 0, to: 1 }, duration: dur(200), ease: EASE.out,
-      onComplete: () => this.tweens.add({
-        targets: ring, alpha: 0, scale: 1.5, duration: dur(240), onComplete: () => ring.destroy(),
-      }),
-    })
-    const tag = this.add.text(x, y - 44, t('classic.diceSet', { n: value }), {
-      fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#d9fbff', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(123).setAlpha(0)
-    this.tweens.add({
-      targets: tag, alpha: 1, y: y - 52, duration: dur(180), yoyo: true, hold: dur(240),
-      onComplete: () => tag.destroy(),
-    })
-    this.time.delayedCall(dur(540), () => { die.destroy(); this.rollDice() })
   },
 
   updatePowerButtons() {
