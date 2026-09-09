@@ -2,21 +2,34 @@
 // snapshot the scene builds each turn - no Phaser, no scene references.
 
 import { SAFE_STOPS, START_INDEX, TRACK, HOME_ENTRY, FINISH_STEPS, GATE_INDEXES } from './board.js'
+import { moverColor } from './rules.js'
 
 // Adapt a full engine state into the lightweight snapshot the bot functions
-// expect (current colour's view, `shielded` as a Set). The client's scene builds
-// an equivalent shape itself today; the server calls this.
+// expect. `color` is whose pawns move this turn (the partner's, in a team game
+// where the roller is already home). `team` is the colour->0|1 map, or null.
 export function aiState(state, difficulty = 'normal') {
-  const color = state.colors[state.current]
+  const color = moverColor(state)
+  const roller = state.colors[state.current]
   return {
     color,
+    roller,
+    assist: color !== roller,
+    team: state.team || null,
     dice: state.dice || 0,
     raw: state.raw || 0,
     pawns: state.pawns.map((p) => ({ color: p.color, id: p.id, steps: p.steps, finished: p.finished })),
     shielded: new Set(state.colors.filter((c) => state.shielded[c])),
-    inventory: { ...state.inventory[color] },
+    inventory: { ...state.inventory[state.colors[state.current]] },
     difficulty,
   }
+}
+
+// Two colours on the same side (or the same colour). Mirrors engine sameTeam
+// but over the flat `team` map the bot snapshot carries.
+function friendly(state, a, b) {
+  if (!state.team) return a === b
+  const ta = state.team[a]
+  return ta != null && ta === state.team[b]
 }
 
 // Does a move from `pawn.steps` to `to` sweep over (or land on) a power gate?
@@ -56,7 +69,7 @@ function capturesAt(state, color, trackIndex) {
   if (trackIndex == null || SAFE_STOPS.has(trackIndex)) return []
   return state.pawns.filter(
     (p) =>
-      p.color !== color &&
+      !friendly(state, p.color, color) &&
       p.steps >= 0 &&
       !p.finished &&
       !state.shielded.has(p.color) &&
@@ -69,7 +82,7 @@ function dangerAt(state, color, trackIndex) {
   if (trackIndex == null || SAFE_STOPS.has(trackIndex)) return 0
   let threat = 0
   for (const p of state.pawns) {
-    if (p.color === color || p.steps < 0 || p.finished) continue
+    if (friendly(state, p.color, color) || p.steps < 0 || p.finished) continue
     const pi = trackOf(p)
     if (pi == null) continue
     const gap = (trackIndex - pi + TRACK.length) % TRACK.length
@@ -145,7 +158,8 @@ export function chooseAiPower(state) {
     if (best > avg + 45 && best > 60) return 'water'
   }
 
-  if (inv.earth > 0) {
+  if (inv.earth > 0 && !state.assist) {
+    // earth shields the roller's own pawns; useless while assisting a partner
     const threatened = onTrack.some((p) => {
       const idx = trackOf(p)
       return idx != null && !SAFE_STOPS.has(idx) && dangerAt(state, state.color, idx) >= 1

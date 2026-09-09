@@ -19,6 +19,10 @@ export const LudoState = schema({
   // sessionId of the room host (private rooms) - may press "start"
   hostId: t.string().default(''),
   maxSeats: t.number().default(2),
+  // 2v2 team match (diagonal pairs); false = free-for-all
+  teams: t.boolean().default(false),
+  // winning team (0 | 1) once a team match is decided, else -1
+  winningTeam: t.number().default(-1),
   // colour whose turn it is, '' outside a game
   currentColor: t.string().default(''),
   // room-clock time (ms) the current turn expires at

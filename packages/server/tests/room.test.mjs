@@ -324,6 +324,60 @@ test('another player leaving does not reset the active turn deadline', async () 
   await active.leave()
 })
 
+test('a teams room seats a full 2v2 table paired diagonally', async () => {
+  const room = await colyseus.createRoom('ludo', { teams: true, botThinkMs: 999_999, turnSeconds: 999 })
+  const a = await colyseus.connectTo(room, { name: 'A' })
+  const b = await colyseus.connectTo(room, { name: 'B' })
+  quiet(a); quiet(b)
+  room.startMatch()
+  await wait(40)
+
+  assert.equal(room.state.phase, 'playing')
+  assert.equal(room.state.teams, true)
+  assert.equal(room.state.seats.size, 4)
+  const g = JSON.parse(room.state.gameJson)
+  assert.deepEqual(g.team, { blue: 0, red: 1, green: 0, yellow: 1 })
+  a.leave(); b.leave()
+})
+
+test('teams and free-for-all quick matches never share a room', async () => {
+  const ffa = await colyseus.sdk.joinOrCreate('ludo', { maxPlayers: 4, teams: false, lobbyWaitMs: 999999 })
+  const team = await colyseus.sdk.joinOrCreate('ludo', { maxPlayers: 4, teams: true, lobbyWaitMs: 999999 })
+  quiet(ffa); quiet(team)
+  assert.notEqual(ffa.roomId, team.roomId)
+  await ffa.leave(); await team.leave()
+})
+
+test('a finished player\'s turn moves their bot partner\'s pawns', async () => {
+  const room = await colyseus.createRoom('ludo', { teams: true, botThinkMs: 3, turnSeconds: 999 })
+  const a = await colyseus.connectTo(room, { name: 'A', eventSnapshots: true })
+  quiet(a)
+  room.startMatch()
+  await wait(40)
+
+  // A is blue; blue+green are a team. Hand blue all four home and put green on
+  // the board, then A rolls - the move must land on a GREEN pawn.
+  const mine = room.state.seats.get(a.sessionId).color
+  assert.equal(mine, 'blue')
+  const mate = 'green'
+  room.engine.pawns.filter((p) => p.color === mine).forEach((p) => { p.finished = true; p.steps = 56 })
+  room.engine.pawns.filter((p) => p.color === mate).forEach((p) => { p.steps = 10 })
+
+  const events = []
+  a.onMessage('events', (batch) => events.push(...batch.events))
+  room.engine.forcedValue = 4
+  a.send('action', { type: 'roll' })
+  await wait(60)
+  a.send('action', { type: 'move', pawnId: 0 })
+  await wait(80)
+
+  const moved = events.find((e) => e.t === 'moved')
+  assert.equal(moved.color, mate, 'A\'s roll moved the partner\'s pawn')
+  assert.equal(moved.assist, true)
+  assert.equal(room.state.phase, 'playing')
+  a.leave()
+})
+
 test('production rooms ignore client-supplied clock overrides', async () => {
   const previous = process.env.NODE_ENV
   try {

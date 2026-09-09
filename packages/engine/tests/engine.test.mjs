@@ -250,6 +250,88 @@ test('timeout auto-plays the current phase', () => {
   assert.equal(t2.events.some((e) => e.t === 'moved'), true)
 })
 
+// ---- 2v2 team play -------------------------------------------------------
+
+// seat order blue, red, green, yellow -> blue+green (team 0) vs red+yellow (1)
+const teamGame = (over = {}) =>
+  createGame({ colors: ['blue', 'red', 'green', 'yellow'], seed: 42, teams: true, ...over })
+const allHome = (s, color) =>
+  s.pawns.filter((p) => p.color === color).forEach((p) => { p.finished = true; p.steps = 56 })
+
+test('team mode pairs seats diagonally', () => {
+  const s = teamGame()
+  assert.deepEqual(s.team, { blue: 0, red: 1, green: 0, yellow: 1 })
+  assert.equal(s.winningTeam, null)
+})
+
+test('teammates never capture each other, enemies still do', () => {
+  let s = teamGame()
+  s.pawns.find((p) => p.color === 'blue' && p.id === 0).steps = 1
+  s.pawns.find((p) => p.color === 'green' && p.id === 0).steps = 29 // track idx 3
+  s.pawns.find((p) => p.color === 'red' && p.id === 0).steps = 42  // track idx 3
+  s = roll(s, 2) // blue 1 -> 3
+  const { state, events } = step(s, { type: 'move', pawnId: 0 })
+  assert.equal(events.some((e) => e.t === 'capture' && e.color === 'red'), true)
+  assert.equal(events.some((e) => e.t === 'capture' && e.color === 'green'), false)
+  assert.equal(state.pawns.find((p) => p.color === 'green' && p.id === 0).steps, 29)
+})
+
+test('one colour finishing all four does NOT end a team game', () => {
+  let s = teamGame()
+  s.pawns.filter((p) => p.color === 'blue').forEach((p, i) => {
+    if (i < 3) { p.finished = true; p.steps = 56 } else { p.steps = 55 }
+  })
+  s = roll(s, 1)
+  const { state, events } = step(s, { type: 'move', pawnId: 3 })
+  assert.equal(events.some((e) => e.t === 'colorHome' && e.color === 'blue'), true)
+  assert.equal(events.some((e) => e.t === 'gameover'), false)
+  assert.notEqual(state.phase, 'gameover')
+  assert.equal(state.winner, null)
+  assert.equal(state.finishOrder.includes('blue'), true)
+})
+
+test('a finished player rolls to move their partner (partner assist)', () => {
+  let s = teamGame()
+  allHome(s, 'blue')
+  s.pawns.filter((p) => p.color === 'green').forEach((p, i) => { p.steps = i === 0 ? 10 : -1 })
+  const rolled = step(s, { type: 'roll', value: 3 })
+  assert.equal(currentColor(rolled.state), 'blue', 'still blue\'s turn / dice')
+  assert.deepEqual(legalMoves(rolled.state), [0], 'only green\'s on-track pawn can move')
+  const moved = step(rolled.state, { type: 'move', pawnId: 0 })
+  const mv = moved.events.find((e) => e.t === 'moved')
+  assert.equal(mv.color, 'green')
+  assert.equal(mv.assist, true)
+  assert.equal(mv.roller, 'blue')
+})
+
+test('a team wins only once all eight pawns are home', () => {
+  let s = teamGame()
+  allHome(s, 'blue')
+  s.pawns.filter((p) => p.color === 'green').forEach((p, i) => {
+    if (i < 3) { p.finished = true; p.steps = 56 } else { p.steps = 55 }
+  })
+  s = roll(s, 1) // blue's turn, assists green's last pawn home
+  const { state, events } = step(s, { type: 'move', pawnId: 3 })
+  assert.equal(state.phase, 'gameover')
+  assert.equal(state.winningTeam, 0)
+  const go = events.find((e) => e.t === 'gameover')
+  assert.equal(go.winningTeam, 0)
+  // winning team's colours lead the ranking
+  assert.equal(state.team[go.ranking[0]], 0)
+  assert.equal(state.team[go.ranking[1]], 0)
+})
+
+test('the roller keeps their own six-run while assisting', () => {
+  let s = teamGame()
+  allHome(s, 'blue')
+  s.pawns.filter((p) => p.color === 'green').forEach((p) => { p.steps = 10 })
+  s = step(s, { type: 'roll', value: 6 }).state
+  s = step(s, { type: 'move', pawnId: 0 }).state // blue rolled a 6 -> extra roll, still blue
+  assert.equal(currentColor(s), 'blue')
+  assert.equal(s.sixRun.blue, 1)
+  assert.equal(s.sixRun.green, 0)
+})
+
 test('publicView hides the rng', () => {
   const s = game()
   assert.equal(publicView(s).rng, undefined)

@@ -7,12 +7,20 @@ import { pickBonusIndex } from './rules.js'
 
 const perColor = (colors, make) => Object.fromEntries(colors.map((c) => [c, make(c)]))
 
-// config: { colors?: string[], seed?: number, startingInventory?: {fire,water,earth} }
+// config: { colors?, seed?, startingInventory?, teams? }
+// teams: when true (and a 4-colour game), pairs seats diagonally - seat 0 & 2 vs
+// seat 1 & 3 - so turn order already alternates team A / B / A / B. A team wins
+// once all EIGHT of its pawns are home; a lone finished player then rolls to
+// move their partner's pawns ("partner assist").
 export function createGame(config = {}) {
   const colors = (config.colors && config.colors.length >= 2 ? config.colors : COLORS).filter(
     (c) => COLORS.includes(c)
   )
   if (colors.length < 2) throw new Error('need at least 2 colours')
+
+  const team = config.teams && colors.length === 4
+    ? { [colors[0]]: 0, [colors[1]]: 1, [colors[2]]: 0, [colors[3]]: 1 }
+    : null
 
   const startInv = config.startingInventory || { fire: 0, water: 0, earth: 0 }
 
@@ -32,6 +40,7 @@ export function createGame(config = {}) {
 
   return {
     colors,
+    team, // { color: 0|1 } in team mode, else null
     pawns,
     bonusRunes,
     current: 0,
@@ -51,6 +60,7 @@ export function createGame(config = {}) {
     captures: perColor(colors, () => 0),
     pendingGate: null,
     winner: null,
+    winningTeam: null, // 0|1 in team mode once decided
     finishOrder: [],
     turn: 0, // monotonic counter, handy for clients / logging
     rng,
@@ -61,6 +71,7 @@ export function createGame(config = {}) {
 export function cloneState(s) {
   return {
     ...s,
+    team: s.team ? { ...s.team } : null,
     pawns: s.pawns.map((p) => ({ ...p })),
     bonusRunes: s.bonusRunes.map((r) => ({ ...r })),
     pendingExtra: { ...s.pendingExtra },

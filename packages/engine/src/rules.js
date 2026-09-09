@@ -25,6 +25,36 @@ export function currentColor(state) {
   return state.colors[state.current]
 }
 
+// ---- teams (null / absent outside team mode) ----
+
+export function teamOf(state, color) {
+  return state.team ? state.team[color] ?? null : null
+}
+
+export function sameTeam(state, a, b) {
+  if (!state.team) return a === b
+  const ta = state.team[a]
+  return ta != null && ta === state.team[b]
+}
+
+// The other colour on `color`'s team, or null.
+export function teammate(state, color) {
+  if (!state.team) return null
+  const mine = state.team[color]
+  return state.colors.find((c) => c !== color && state.team[c] === mine) ?? null
+}
+
+// Whose PAWNS move on the current turn. Normally the roller; in team mode, once
+// the roller has all four pawns home, the dice drives their partner's pawns.
+export function moverColor(state) {
+  const roller = currentColor(state)
+  if (!state.team) return roller
+  if (pawnsOf(state, roller).some((p) => !p.finished)) return roller
+  const mate = teammate(state, roller)
+  if (mate && pawnsOf(state, mate).some((p) => !p.finished)) return mate
+  return roller
+}
+
 export function pawnsOf(state, color) {
   return state.pawns.filter((p) => p.color === color)
 }
@@ -60,9 +90,10 @@ export function canMovePawn(state, pawn) {
   return pawn.steps + state.dice <= FINISH_STEPS
 }
 
-// Pawn ids of the current player that have a legal move.
+// Pawn ids that can legally move now - the current player's, or (team mode, once
+// they're all home) their partner's.
 export function legalMoves(state) {
-  return pawnsOf(state, currentColor(state))
+  return pawnsOf(state, moverColor(state))
     .filter((p) => canMovePawn(state, p))
     .map((p) => p.id)
 }
@@ -90,7 +121,7 @@ export function landingImpact(state, movedPawn, trackIndex) {
   const blocked = []
   if (trackIndex == null || isSafe(trackIndex)) return { captured, blocked }
   for (const p of state.pawns) {
-    if (p === movedPawn || p.color === movedPawn.color) continue
+    if (p === movedPawn || sameTeam(state, p.color, movedPawn.color)) continue
     if (p.steps < 0 || p.finished) continue
     if (trackIndexOf(p) !== trackIndex) continue
     if (state.shielded[p.color]) blocked.push(p.color)

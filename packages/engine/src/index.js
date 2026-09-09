@@ -6,6 +6,7 @@ export { reduce } from './reduce.js'
 export {
   currentColor, legalMoves, canMovePawn, pawnCell, trackIndexOf,
   crossesGate, landingImpact,
+  teamOf, sameTeam, teammate, moverColor,
 } from './rules.js'
 export * from './constants.js'
 // Board topology + palette data. The client pulls all of this from the engine

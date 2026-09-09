@@ -8,6 +8,7 @@ import { rngInt, rngPick } from './rng.js'
 import {
   currentColor, findPawn, pawnsOf, legalMoves, canMovePawn, destStep,
   crossesGate, landingImpact, trackIndexOf, occupiedTrackIndices, pickBonusIndex, TRACK_LEN,
+  moverColor, teamOf,
 } from './rules.js'
 
 const STORABLE = ['fire', 'water', 'earth']
@@ -34,10 +35,23 @@ function progressOf(s, color) {
 }
 
 function ranking(s) {
+  const teamProgress = (c) => {
+    if (s.team == null) return progressOf(s, c)
+    return s.colors
+      .filter((x) => s.team[x] === s.team[c])
+      .reduce((sum, x) => sum + progressOf(s, x), 0)
+  }
   return [...s.colors].sort((a, b) => {
+    // team mode: the winning team's colours lead, then by combined progress
+    if (s.team != null && s.winningTeam != null) {
+      const aw = s.team[a] === s.winningTeam
+      const bw = s.team[b] === s.winningTeam
+      if (aw !== bw) return aw ? -1 : 1
+    }
     if (a === s.winner) return -1
     if (b === s.winner) return 1
-    return progressOf(s, b) - progressOf(s, a)
+    const t = teamProgress(b) - teamProgress(a)
+    return t !== 0 ? t : progressOf(s, b) - progressOf(s, a)
   })
 }
 
@@ -155,9 +169,11 @@ function doRoll(s, events, explicitValue) {
 }
 
 function doMove(s, events, pawnId, gateRune) {
-  const color = currentColor(s)
+  const roller = currentColor(s)      // whose turn / dice / inventory / clock
+  const mover = moverColor(s)         // whose pawn actually moves (team assist)
+  const assist = mover !== roller
   if (!legalMoves(s).includes(pawnId)) return fail(s, 'illegal move')
-  const pawn = findPawn(s, color, pawnId)
+  const pawn = findPawn(s, mover, pawnId)
 
   const from = pawn.steps
   const to = destStep(pawn, s.dice)
@@ -166,29 +182,33 @@ function doMove(s, events, pawnId, gateRune) {
     pawn.finished = true
     pawn.steps = FINISH_STEPS
   }
-  events.push({ t: 'moved', color, pawnId, from, to: pawn.steps })
+  events.push(assist
+    ? { t: 'moved', color: mover, pawnId, from, to: pawn.steps, roller, assist: true }
+    : { t: 'moved', color: mover, pawnId, from, to: pawn.steps })
 
-  // gate
-  const gate = gateHit(color, from, pawn.steps)
+  // gate - the pawn's owner passes it, but whoever's turn it is makes the pick
+  // (and banks the rune), so the picker UI stays on the active seat
+  const gate = gateHit(mover, from, pawn.steps)
   if (gate != null) {
-    events.push({ t: 'gate', color, pawnId, index: gate })
+    events.push({ t: 'gate', color: mover, pawnId, index: gate, picker: roller })
     if (gateRune && GATE_RUNES.includes(gateRune)) {
-      grantRune(s, color, gateRune)
-      events.push({ t: 'runePicked', color, key: gateRune, deferred: false })
+      grantRune(s, roller, gateRune)
+      events.push({ t: 'runePicked', color: roller, key: gateRune, deferred: false })
     } else {
-      // a hanging pick from another colour can't ride across a second gate pass
-      if (s.pendingGate && s.pendingGate.color !== color) autoResolveGate(s, events)
-      s.pendingGate = { color, pawnId }
+      // a hanging pick from another seat can't ride across a second gate pass
+      if (s.pendingGate && s.pendingGate.color !== roller) autoResolveGate(s, events)
+      s.pendingGate = assist ? { color: roller, pawnId, pawnColor: mover } : { color: roller, pawnId }
     }
   }
 
-  // "+1" bonus rune - landing on one grants an extra roll, then it moves on
+  // "+1" bonus rune - landing on one grants an extra roll (to the roller), then
+  // the rune moves on
   const landIndex = trackIndexOf(pawn)
   const bi = landIndex == null ? -1 : s.bonusRunes.findIndex((r) => r.index === landIndex)
   if (bi >= 0) {
     s.bonusRunes.splice(bi, 1)
     s.extraRoll = true
-    events.push({ t: 'bonus', color, pawnId, index: landIndex })
+    events.push({ t: 'bonus', color: mover, pawnId, index: landIndex, roller })
     events.push({ t: 'bonusSpawn', index: respawnBonusRune(s) })
   }
 
@@ -197,28 +217,40 @@ function doMove(s, events, pawnId, gateRune) {
   for (const c of impact.blocked) {
     s.shielded[c] = false
     s.shieldExpiresOnRoll[c] = false
-    events.push({ t: 'shieldBlock', color: c, by: color })
+    events.push({ t: 'shieldBlock', color: c, by: mover })
   }
   if (impact.captured.length) {
-    s.captures[color] += impact.captured.length
+    s.captures[roller] += impact.captured.length
     for (const victim of impact.captured) {
       victim.steps = -1
       victim.finished = false
-      events.push({ t: 'capture', color: victim.color, id: victim.id, by: color })
+      events.push({ t: 'capture', color: victim.color, id: victim.id, by: mover })
     }
   }
 
-  if (pawn.finished) events.push({ t: 'finish', color, pawnId })
+  if (pawn.finished) events.push({ t: 'finish', color: mover, pawnId })
 
-  // win = first player to bring all four home
-  if (pawnsOf(s, color).every((p) => p.finished) && !s.finishOrder.includes(color)) {
-    s.finishOrder.push(color)
-    s.winner = color
+  // a colour bringing all four home: records the placing. In team mode this is
+  // NOT the end - the partner plays on until all eight are home.
+  if (pawn.finished && pawnsOf(s, mover).every((p) => p.finished) && !s.finishOrder.includes(mover)) {
+    s.finishOrder.push(mover)
+    if (s.team) events.push({ t: 'colorHome', color: mover })
+  }
+
+  const teamDone = s.team
+    ? s.colors.filter((c) => teamOf(s, c) === teamOf(s, mover)).every(
+      (c) => pawnsOf(s, c).every((p) => p.finished)
+    )
+    : pawnsOf(s, mover).every((p) => p.finished)
+
+  if (teamDone && !s.winner) {
+    s.winner = mover
+    if (s.team) s.winningTeam = teamOf(s, mover)
     s.phase = 'gameover'
     s.dice = 0
     s.raw = 0
-    events.push({ t: 'win', color })
-    events.push({ t: 'gameover', winner: color, ranking: ranking(s) })
+    events.push(s.team ? { t: 'win', color: mover, team: s.winningTeam } : { t: 'win', color: mover })
+    events.push({ t: 'gameover', winner: mover, winningTeam: s.winningTeam, ranking: ranking(s) })
     return { state: s, events }
   }
 
@@ -231,7 +263,7 @@ function doMove(s, events, pawnId, gateRune) {
         : s.raw === 6
           ? 'six'
           : null
-  closeTurn(s, events, color, extraReason)
+  closeTurn(s, events, roller, extraReason)
   return { state: s, events }
 }
 
@@ -253,6 +285,8 @@ function doUsePower(s, events, key, value) {
     s.forcedValue = value
     events.push({ t: 'powerUsed', color, key: 'water', value })
   } else {
+    // shield protects "your pawns" - once they're all home it does nothing, so
+    // an assisting player's fire/water still help their partner but earth won't
     s.inventory[color].earth--
     s.shielded[color] = true
     s.shieldExpiresOnRoll[color] = false

@@ -27,8 +27,13 @@ export class LudoRoom extends Room {
 
   async onCreate(options) {
     this.difficulty = options?.difficulty || 'normal'
-    this.maxClients = Math.min(4, Math.max(2, Math.floor(Number(options?.maxPlayers) || 2)))
+    // 2v2 team match: diagonal pairs, always a full 4-seat table
+    this.teams = Boolean(options?.teams)
+    this.maxClients = this.teams
+      ? 4
+      : Math.min(4, Math.max(2, Math.floor(Number(options?.maxPlayers) || 2)))
     this.state.maxSeats = this.maxClients
+    this.state.teams = this.teams
     this.private = Boolean(options?.private)
     // solo test mode: one human + bots, starts the instant the player joins and
     // is kept out of quick-match so nobody else can drop in.
@@ -168,8 +173,8 @@ export class LudoRoom extends Room {
       this.state.seats.set(`bot:${colors[i]}`, bot)
     }
 
-    this.engine = createGame({ colors, seed: randomInt(1, 2 ** 31) })
-    this.syncState([{ t: 'start', colors }])
+    this.engine = createGame({ colors, seed: randomInt(1, 2 ** 31), teams: this.teams })
+    this.syncState([{ t: 'start', colors, teams: this.teams }])
     this.armClock()
   }
 
@@ -227,6 +232,7 @@ export class LudoRoom extends Room {
     const over = this.engine.phase === 'gameover'
     this.state.phase = over ? 'gameover' : 'playing'
     this.state.currentColor = over ? '' : currentColor(this.engine)
+    this.state.winningTeam = this.engine.winningTeam ?? -1
     this.state.gameJson = JSON.stringify(publicView(this.engine))
     if (events && events.length) {
       // Keep installed clients working while the web client rolls out.
