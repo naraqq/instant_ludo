@@ -4,19 +4,9 @@ import { W, H } from '../../config.js'
 import { sfx } from '../../audio.js'
 import { store } from '../../store.js'
 import { t } from '../../i18n.js'
-import {
-  COLORS,
-  COLOR_HEX,
-  COLOR_DARK,
-  COLOR_LIGHT,
-  COLOR_SURFACE,
-  BOARD_PALETTE,
-  SAFE_STOPS,
-  HOME_LANES,
-  YARDS,
-  TRACK,
-} from '@ludo/engine'
-import { TILE, BOARD_SIZE, BOARD_X, BOARD_Y, BOARD_BOTTOM, BAR_Y, START_OWNER } from './constants.js'
+import { COLORS, COLOR_LIGHT, YARDS } from '@ludo/engine'
+import { TILE, BOARD_SIZE, BOARD_X, BOARD_Y, BAR_Y } from './constants.js'
+import { buildBoardCanvas } from './boardArt.js'
 
 export const BoardViewMixin = {
   createBackdrop() {
@@ -63,33 +53,21 @@ export const BoardViewMixin = {
   },
 
   createBoard() {
-    const boardSize = BOARD_SIZE
     this.boardLayer = this.add.container(0, 0).setDepth(2)
-    this._boardExtras = []
 
-    // full-bleed board: just soft edge accents top & bottom
-    this.boardLayer.add([
-      this.add.rectangle(W / 2, BOARD_Y - 3, W, 6, 0x000000, 0.32),
-      this.add.rectangle(W / 2, BOARD_BOTTOM + 3, W, 6, 0x000000, 0.32),
-      this.add.rectangle(W / 2, BOARD_Y + 1, W, 2, 0xffffff, 0.25),
-    ])
-
-    const g = this.add.graphics()
-    g.fillStyle(0xffffff, 1)
-    g.fillRect(BOARD_X, BOARD_Y, boardSize, boardSize)
-    COLORS.forEach((color) => this.drawYard(g, color))
-    TRACK.forEach(([gx, gy], i) => {
-      const owner = START_OWNER[i]
-      const fill = owner ? COLOR_HEX[owner] : SAFE_STOPS.has(i) ? BOARD_PALETTE.safe : BOARD_PALETTE.track
-      this.drawSquare(g, gx, gy, fill, 1, null, { safe: SAFE_STOPS.has(i), owner })
-    })
-    Object.entries(HOME_LANES).forEach(([color, cells]) => {
-      cells.forEach(([gx, gy]) => this.drawSquare(g, gx, gy, COLOR_HEX[color], 1, color))
-    })
-    this.drawCenter(g)
-    this.boardLayer.add(g)
-    this.boardLayer.add(this._boardExtras)
-    this._boardExtras = null
+    if (!this.textures.exists('board-v2')) {
+      this.textures.addCanvas('board-v2', buildBoardCanvas())
+    }
+    const cx = BOARD_X + BOARD_SIZE / 2
+    const cy = BOARD_Y + BOARD_SIZE / 2
+    // drop shadow so the board sits ON the arena
+    const shadow = this.add.image(cx, cy + 8, 'board-v2').setDisplaySize(BOARD_SIZE, BOARD_SIZE)
+      .setTint(0x000000).setAlpha(0.35)
+    const board = this.add.image(cx, cy, 'board-v2').setDisplaySize(BOARD_SIZE, BOARD_SIZE)
+    // the online scene rotates the whole board so the local player sits bottom-left
+    const rot = (this._boardRot | 0) % 4
+    if (rot) { shadow.setAngle(rot * 90); board.setAngle(rot * 90) }
+    this.boardLayer.add([shadow, board])
 
     this.createQuadrantFx()
   },
@@ -107,95 +85,6 @@ export const BoardViewMixin = {
         .setDepth(3) // just above the board art, under gates / runes / pawns
       this.quadFx[color] = rect
     })
-  },
-
-  drawYard(g, color) {
-    const [gx, gy] = YARDS[color].box
-    const centre = this.gridToPixel(gx + 3, gy + 3)
-    const x = centre.x - TILE * 3
-    const y = centre.y - TILE * 3
-    g.fillStyle(COLOR_HEX[color], 1)
-    g.fillRect(x, y, TILE * 6, TILE * 6)
-    g.fillGradientStyle(COLOR_LIGHT[color], COLOR_HEX[color], COLOR_HEX[color], COLOR_DARK[color], 1)
-    g.fillRect(x, y, TILE * 6, TILE * 6)
-    g.lineStyle(2, COLOR_DARK[color], .4)
-    g.strokeRect(x + 1, y + 1, TILE * 6 - 2, TILE * 6 - 2)
-    g.fillStyle(COLOR_DARK[color], .3)
-    g.fillRoundedRect(x + TILE + 4, y + TILE + 7, TILE * 4, TILE * 4, 18)
-    g.fillStyle(COLOR_SURFACE[color], 1)
-    g.fillRoundedRect(x + TILE, y + TILE, TILE * 4, TILE * 4, 18)
-    g.lineStyle(3, 0xffffff, .9)
-    g.strokeRoundedRect(x + TILE, y + TILE, TILE * 4, TILE * 4, 18)
-    this.yardSlots(color).forEach(([px, py]) => {
-      const p = this.gridToPixel(px, py + 0.28)
-      g.fillStyle(COLOR_HEX[color], .16)
-      g.fillEllipse(p.x, p.y, 34, 14)
-    })
-  },
-
-  drawSquare(g, gx, gy, color, alpha = 1, laneColor, opts = {}) {
-    const centre = this.gridToPixel(gx + 0.5, gy + 0.5)
-    const x = centre.x - TILE / 2
-    const y = centre.y - TILE / 2
-    g.fillStyle(color, alpha)
-    g.fillRect(x, y, TILE, TILE)
-    if (laneColor) {
-      g.fillStyle(COLOR_LIGHT[laneColor], 0.18)
-      g.fillRect(x, y, TILE, 4)
-      g.fillStyle(COLOR_DARK[laneColor], 0.18)
-      g.fillRect(x, y + TILE - 4, TILE, 4)
-      g.lineStyle(2, COLOR_DARK[laneColor], 0.5)
-      g.strokeRect(x, y, TILE, TILE)
-    } else if (opts.owner) {
-      g.fillStyle(0xffffff, 0.22)
-      g.fillRect(x, y, TILE, 5)
-      g.fillStyle(COLOR_DARK[opts.owner], 0.28)
-      g.fillRect(x, y + TILE - 5, TILE, 5)
-      g.lineStyle(2.5, COLOR_DARK[opts.owner], 0.62)
-      g.strokeRect(x, y, TILE, TILE)
-    } else if (opts.safe) {
-      g.fillStyle(0xffffff, 0.18)
-      g.fillRect(x, y, TILE, 5)
-      g.fillStyle(0x000000, 0.08)
-      g.fillRect(x, y + TILE - 5, TILE, 5)
-      g.lineStyle(1.75, BOARD_PALETTE.grid, 0.62)
-      g.strokeRect(x, y, TILE, TILE)
-    } else {
-      g.lineStyle(1.75, BOARD_PALETTE.grid, 0.62)
-      g.strokeRect(x, y, TILE, TILE)
-    }
-    if (opts.safe) {
-      this._boardExtras?.push(this.add.text(x + TILE / 2, y + TILE / 2, '★', {
-        fontFamily: 'Verdana, sans-serif',
-        fontSize: 18,
-        color: opts.owner ? '#ffffff' : '#3f4756',
-        fontStyle: 'bold',
-      }).setOrigin(0.5).setAlpha(opts.owner ? 0.95 : 0.8))
-    }
-  },
-
-  drawCenter(g) {
-    const C = this.gridToPixel(7.5, 7.5)
-    const cx = C.x
-    const cy = C.y
-    const tl = this.gridToPixel(6, 6)
-    const tr = this.gridToPixel(9, 6)
-    const bl = this.gridToPixel(6, 9)
-    const br = this.gridToPixel(9, 9)
-    g.fillStyle(COLOR_HEX.red, 1)
-    g.fillTriangle(tl.x, tl.y, cx, cy, bl.x, bl.y)
-    g.fillStyle(COLOR_HEX.green, 1)
-    g.fillTriangle(tl.x, tl.y, cx, cy, tr.x, tr.y)
-    g.fillStyle(COLOR_HEX.yellow, 1)
-    g.fillTriangle(tr.x, tr.y, cx, cy, br.x, br.y)
-    g.fillStyle(COLOR_HEX.blue, 1)
-    g.fillTriangle(bl.x, bl.y, cx, cy, br.x, br.y)
-    this._boardExtras?.push(this.add.text(cx, cy, '★', {
-      fontFamily: 'Verdana, sans-serif',
-      fontSize: 34,
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setStroke('#00000033', 4))
   },
 
   createBottomBar() {
