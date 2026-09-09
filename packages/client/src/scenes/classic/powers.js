@@ -15,6 +15,103 @@ import { BAR_Y, POD_R, POWER_SLOT_KEYS, TILE } from './constants.js'
 export const GATE_RUNES = ['fire', 'water', 'earth']
 const BONUS_RUNE_COUNT = 4
 
+export const POWER_META = {
+  fire: { name: 'DOUBLE', blurb: 'Your next roll counts twice', tint: 0xff5c28 },
+  water: { name: 'CHOOSE', blurb: 'Pick the number you roll', tint: 0x3fb6ff },
+  earth: { name: 'SHIELD', blurb: 'Your pawns can’t be sent home', tint: 0x57cf6a },
+}
+const hxp = (n) => '#' + ((n >>> 0) & 0xffffff).toString(16).padStart(6, '0')
+
+// A rune-coin icon per power, painted once so the three read as one set.
+function powerRuneTexture(scene, key) {
+  const id = `power-rune-${key}`
+  if (scene.textures.exists(id)) return id
+  const S = 2
+  const r = 42 * S
+  const cv = document.createElement('canvas')
+  cv.width = cv.height = r * 2 + 8 * S
+  const ctx = cv.getContext('2d')
+  const cx = cv.width / 2
+  const cy = cv.height / 2
+  const tint = POWER_META[key].tint
+  // hex coin
+  ctx.beginPath()
+  for (let i = 0; i < 6; i++) {
+    const a = (i * Math.PI) / 3 - Math.PI / 2
+    const px = cx + Math.cos(a) * r
+    const py = cy + Math.sin(a) * r
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)
+  }
+  ctx.closePath()
+  const g = ctx.createLinearGradient(cx, cy - r, cx, cy + r)
+  g.addColorStop(0, '#ffffff')
+  g.addColorStop(0.12, hxp(tint))
+  g.addColorStop(1, hxp(((tint & 0xfefefe) >> 1)))
+  ctx.fillStyle = g
+  ctx.fill()
+  ctx.lineWidth = 3.5 * S
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'
+  ctx.stroke()
+  ctx.save()
+  ctx.clip()
+  ctx.beginPath()
+  ctx.ellipse(cx, cy - r * 0.5, r * 0.8, r * 0.4, 0, 0, 7)
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'
+  ctx.fill()
+  ctx.restore()
+  // glyph
+  ctx.fillStyle = '#ffffff'
+  ctx.strokeStyle = 'rgba(0,0,0,0.28)'
+  ctx.lineWidth = 3 * S
+  ctx.lineJoin = 'round'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  if (key === 'fire') {
+    ctx.font = `bold ${r * 1.05}px Verdana, sans-serif`
+    ctx.strokeText('×2', cx, cy + 2 * S)
+    ctx.fillText('×2', cx, cy + 2 * S)
+  } else if (key === 'water') {
+    // a die face inside a target ring
+    ctx.lineWidth = 4 * S
+    ctx.strokeStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.arc(cx, cy, r * 0.62, 0, 7)
+    ctx.stroke()
+    const s = r * 0.42
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.roundRect(cx - s, cy - s, s * 2, s * 2, 6 * S)
+    ctx.fill()
+    ctx.fillStyle = hxp(tint)
+    for (const [dx, dy] of [[-1, -1], [1, 1], [0, 0]]) {
+      ctx.beginPath()
+      ctx.arc(cx + dx * s * 0.5, cy + dy * s * 0.5, s * 0.16, 0, 7)
+      ctx.fill()
+    }
+  } else {
+    // shield
+    ctx.beginPath()
+    ctx.moveTo(cx, cy - r * 0.62)
+    ctx.lineTo(cx + r * 0.5, cy - r * 0.38)
+    ctx.lineTo(cx + r * 0.5, cy + r * 0.12)
+    ctx.quadraticCurveTo(cx + r * 0.5, cy + r * 0.55, cx, cy + r * 0.72)
+    ctx.quadraticCurveTo(cx - r * 0.5, cy + r * 0.55, cx - r * 0.5, cy + r * 0.12)
+    ctx.lineTo(cx - r * 0.5, cy - r * 0.38)
+    ctx.closePath()
+    ctx.fillStyle = '#ffffff'
+    ctx.fill()
+    ctx.strokeStyle = hxp(tint)
+    ctx.lineWidth = 5 * S
+    ctx.beginPath()
+    ctx.moveTo(cx - r * 0.2, cy + r * 0.04)
+    ctx.lineTo(cx - r * 0.02, cy + r * 0.24)
+    ctx.lineTo(cx + r * 0.26, cy - r * 0.18)
+    ctx.stroke()
+  }
+  scene.textures.addCanvas(id, cv)
+  return id
+}
+
 export const PowersMixin = {
   // Three fixed power slots. The icon is the button; a red corner badge shows
   // how many of that power you hold (hidden at zero, like every other game).
@@ -25,11 +122,14 @@ export const PowersMixin = {
     POWER_SLOT_KEYS.forEach((key) => {
       const x = xs[key]
       const c = this.add.container(x, BAR_Y).setDepth(48).setData('baseScale', 1)
-      c.add(this.add.ellipse(4, 42, 66, 16, 0x000000, 0.3))
-      const icon = this.add.image(0, 0, `power-${key}`)
-      icon.setScale(84 / icon.height)
+      c.add(this.add.ellipse(4, 40, 62, 15, 0x000000, 0.3))
+      const icon = this.add.image(0, -6, powerRuneTexture(this, key)).setDisplaySize(70, 70)
       icon.name = 'icon'
       c.add(icon)
+      const label = this.add.text(0, 34, POWER_META[key].name, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 10, color: '#c7d2e2', fontStyle: 'bold',
+      }).setOrigin(0.5)
+      c.add(label)
       const badge = this.add.container(34, -34)
       badge.add(this.add.circle(2, 2, 15, 0x000000, 0.3))
       badge.add(this.add.circle(0, 0, 15, 0xff4757).setStrokeStyle(2.5, 0xffffff))
@@ -555,12 +655,13 @@ export const PowersMixin = {
       this.updatePowerButtons?.()
     }
     if (prefersReducedMotion || !target) { flash(); return }
-    const tint = { fire: 0xff5c28, water: 0x3fb6ff, earth: 0x57cf6a }[key] ?? COLOR_HEX[color]
+    const tint = POWER_META[key]?.tint ?? COLOR_HEX[color]
     this.popAt(at.x, at.y, tint)
     const ring = this.add.circle(at.x, at.y, 6, tint, 0).setStrokeStyle(4, tint, 0.9).setDepth(79)
     this.tweens.add({ targets: ring, radius: 26, alpha: 0, duration: dur(300), ease: EASE.out, onComplete: () => ring.destroy() })
-    const icon = this.add.image(at.x, at.y, `power-${key}`).setDepth(80).setScale(0).setAlpha(0)
-    const s = 46 / icon.height
+    const icon = this.add.image(at.x, at.y, powerRuneTexture(this, key)).setDepth(80).setAlpha(0)
+    const s = 44 / icon.height
+    icon.setScale(0)
     this.tweens.chain({
       targets: icon,
       tweens: [
@@ -624,9 +725,6 @@ export const PowersMixin = {
     }
     this._gatePickChoose = choose
 
-    const labelKey = {
-      fire: 'home.powerFire', water: 'home.powerWater', earth: 'home.powerEarth',
-    }
     const tiles = []
     const gy = -panelH / 2 + 46 + tileH / 2
     GATE_RUNES.forEach((key, i) => {
@@ -634,13 +732,15 @@ export const PowersMixin = {
       const slot = this.add.container(gx, gy).setData('baseScale', 1)
       const bg = this.add.image(0, 0, 'gate-tile')
       bg.name = 'bg'
-      const icon = this.add.image(0, -22, `power-${key}`)
-      icon.setScale(76 / icon.height)
-      const label = this.add.text(0, 50, t(labelKey[key]), {
-        fontFamily: 'Verdana, sans-serif', fontSize: 11, color: '#efe8ff', fontStyle: 'bold',
-        align: 'center', wordWrap: { width: tileW - 12 },
+      const icon = this.add.image(0, -26, powerRuneTexture(this, key)).setDisplaySize(64, 64)
+      const name = this.add.text(0, 22, POWER_META[key].name, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#ffffff', fontStyle: 'bold',
       }).setOrigin(0.5)
-      slot.add([bg, icon, label])
+      const blurb = this.add.text(0, 46, POWER_META[key].blurb, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 9.5, color: '#a9c0d6',
+        align: 'center', wordWrap: { width: tileW - 14 },
+      }).setOrigin(0.5)
+      slot.add([bg, icon, name, blurb])
       panel.add(slot)
       tiles.push(slot)
       const zone = this.add.zone(W / 2 + gx, panelY + gy, tileW, tileH).setInteractive({ useHandCursor: true })
