@@ -179,7 +179,7 @@ export class ClassicScene extends UIScene {
       })
     })
 
-    // power buttons appear on their own as the player earns charges
+    // power buttons appear on their own once the player picks a rune at a gate
 
     this.time.delayedCall(dur(720), () => {
       this.refreshTurnUI()

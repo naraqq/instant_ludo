@@ -459,7 +459,6 @@ export class NetLudoScene extends UIScene {
       case 'bonus': return this.playBonus(ev)
       case 'bonusSpawn': this.bonusRuneViews.has(ev.index) || this.bonusRuneViews.set(ev.index, this.createBonusRuneView({ index: ev.index })); return Promise.resolve()
       case 'capture': return this.playCapture(ev)
-      case 'charge': return this.playCharge(ev)
       case 'shieldBlock': return this.playShieldBlockEv(ev)
       case 'shieldExpired': this.syncShields(); return this.pause(80)
       case 'finish': return this.playFinish(ev)
@@ -551,12 +550,6 @@ export class NetLudoScene extends UIScene {
     const v = this.pawnViews.get(victim)
     if (v) this.playElementalSkill?.(ev.by, v.x, v.y)
     return new Promise((res) => { this.positionPawn(victim, true); this.time.delayedCall(dur(300), res) })
-  }
-
-  playCharge(ev) {
-    const badge = this.playerBadges?.[ev.by || ev.color]
-    this.grantCaptureCharge?.(ev.color, badge?.x ?? W / 2, badge?.y ?? H / 2)
-    return this.pause(160)
   }
 
   playShieldBlockEv(ev) {

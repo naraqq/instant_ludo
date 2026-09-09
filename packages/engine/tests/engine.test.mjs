@@ -72,7 +72,7 @@ test('water forces the face', () => {
   assert.equal(rolled.events[0].raw, 5)
 })
 
-test('landing on an opponent captures it and grants a charge', () => {
+test('landing on an opponent sends it home and grants an extra turn (no rune)', () => {
   let s = game()
   const blue = s.pawns.find((p) => p.color === 'blue' && p.id === 0)
   const red = s.pawns.find((p) => p.color === 'red' && p.id === 0)
@@ -83,8 +83,10 @@ test('landing on an opponent captures it and grants a charge', () => {
   const { state, events } = step(s, { type: 'move', pawnId: 0 })
   assert.equal(events.some((e) => e.t === 'capture' && e.color === 'red'), true)
   assert.equal(state.pawns.find((p) => p.color === 'red' && p.id === 0).steps, -1)
-  const charged = events.find((e) => e.t === 'charge')
-  assert.ok(charged && state.inventory.blue[charged.key] === 1)
+  assert.equal(events.some((e) => e.t === 'charge'), false)
+  assert.deepEqual(state.inventory.blue, { fire: 0, water: 0, earth: 0 })
+  // capturing keeps the turn (extra roll)
+  assert.equal(currentColor(state), 'blue')
 })
 
 test('a shield absorbs the hit instead of being captured', () => {

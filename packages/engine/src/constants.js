@@ -2,8 +2,6 @@
 // scene. Pure values, no rendering concerns.
 
 export const SIX_PITY_LIMIT = 3           // force a 6 after this many straight non-6 rolls, per player
-export const CAPTURE_GRANTS_CHARGE = true // landing on an opponent's pawn awards a power charge
-export const CAPTURE_CHARGE_POOL = ['fire', 'water', 'earth']
 export const GATE_RUNES = ['fire', 'water', 'earth'] // the 3 storable powers, offered at a gate
 export const BONUS_RUNE_COUNT = 4        // "+1" extra-roll runes scattered on the track
 

@@ -2,9 +2,7 @@
 // Pure: never mutates its input. `events` is an ordered list the client plays
 // out as animation; the server just broadcasts state + events.
 import { FINISH_STEPS, GATE_INDEXES, START_INDEX } from './board.js'
-import {
-  SIX_PITY_LIMIT, CAPTURE_GRANTS_CHARGE, CAPTURE_CHARGE_POOL, GATE_RUNES,
-} from './constants.js'
+import { SIX_PITY_LIMIT, GATE_RUNES } from './constants.js'
 import { cloneState } from './state.js'
 import { rngInt, rngPick } from './rng.js'
 import {
@@ -193,12 +191,6 @@ function doMove(s, events, pawnId, gateRune) {
       victim.steps = -1
       victim.finished = false
       events.push({ t: 'capture', color: victim.color, id: victim.id, by: color })
-      if (CAPTURE_GRANTS_CHARGE) {
-        let key
-        ;[key, s.rng] = rngPick(s.rng, CAPTURE_CHARGE_POOL)
-        s.inventory[color][key]++
-        events.push({ t: 'charge', color, key })
-      }
     }
   }
 

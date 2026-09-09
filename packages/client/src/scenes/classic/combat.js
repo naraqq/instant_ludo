@@ -1,11 +1,9 @@
 // Landing on an opponent: which pawns get sent home, the knock-back / fly-home
-// sequence, the elemental burst that goes with it, the power charge it awards,
-// plus the shared particle textures and the generic pop burst.
+// sequence, the elemental burst that goes with it, plus the shared particle
+// textures and the generic pop burst.
 import Phaser from 'phaser'
-import { EASE, dur, prefersReducedMotion } from '../../ui/tokens.js'
 import { sfx } from '../../audio.js'
 import { COLOR_HEX, SAFE_STOPS } from '@ludo/engine'
-import { CAPTURE_GRANTS_CHARGE, CAPTURE_CHARGE_POOL } from './constants.js'
 
 export const CombatMixin = {
   collectCaptures(movedPawn) {
@@ -35,13 +33,6 @@ export const CombatMixin = {
     sfx.capture()
     sfx.buzz([16, 40, 24])
 
-    if (CAPTURE_GRANTS_CHARGE) {
-      captured.forEach(({ pawn }, i) => {
-        const v = this.pawnViews.get(pawn)
-        const at = { x: v.x, y: v.y }
-        this.time.delayedCall(i * 130 + 240, () => this.grantCaptureCharge(attacker.color, at.x, at.y))
-      })
-    }
     const attackerView = this.pawnViews.get(attacker)
     const attackerScale = attackerView.getData('stackScale') ?? 1
     this.tweens.add({
@@ -105,46 +96,6 @@ export const CombatMixin = {
         })
       })
     })
-  },
-
-  // Capturing an opponent's pawn awards the attacker a random power charge,
-  // which flies from the capture spot to its bar button.
-  grantCaptureCharge(color, x, y) {
-    const key = Phaser.Utils.Array.GetRandom(CAPTURE_CHARGE_POOL)
-    this.powerInventory[color][key]++
-    sfx.rune()
-    this.updatePowerButtons() // reveal / reflow the slot before flying to it
-
-    const icon = this.add.image(x, y - 8, `rune-${key}`).setScale(46 / 240).setDepth(80)
-    const plus = this.add.text(x, y - 30, '+1', {
-      fontFamily: 'Verdana, sans-serif', fontSize: 18, color: '#ffe27a', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(81).setStroke('#000000', 4)
-    this.tweens.add({ targets: plus, y: y - 58, alpha: 0, duration: dur(700), ease: EASE.out, onComplete: () => plus.destroy() })
-
-    const ownInventory = color === this.powerBarColor && !this.isBot(color)
-    const btn = ownInventory ? this.powerButtons[key]?.container : this.playerBadges?.[color]
-    if (btn && !prefersReducedMotion) {
-      this.tweens.add({
-        targets: icon,
-        x: btn.x,
-        y: btn.y,
-        scale: 0.04,
-        duration: dur(480),
-        delay: dur(80),
-        ease: EASE.inOut,
-        onComplete: () => {
-          icon.destroy()
-          if (ownInventory && color === this.powerBarColor) this.flashPower(key)
-          this.updatePowerButtons()
-        },
-      })
-    } else {
-      this.tweens.add({
-        targets: icon, y: icon.y - 34, alpha: 0, scale: 0.08,
-        duration: dur(520), ease: EASE.out, onComplete: () => icon.destroy(),
-      })
-      this.updatePowerButtons()
-    }
   },
 
   playElementalSkill(color, x, y) {
