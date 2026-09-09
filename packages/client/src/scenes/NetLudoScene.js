@@ -463,7 +463,7 @@ export class NetLudoScene extends UIScene {
       case 'turn':
         if (ev.extra || ev.cause) this._pendingCue = { color: ev.color, reason: ev.extra || ev.cause }
         return this.pause(140)
-      case 'noMove': this.showToast(t('classic.noMove')); return this.pause(420)
+      case 'noMove': return this.pause(360)
       case 'gameover': this.showGameOver(ev); return this.pause(200)
       default: return Promise.resolve()
     }

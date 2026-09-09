@@ -9,6 +9,9 @@ import { LudoState, Seat } from './schema/LudoState.js'
 import { verifyTicket, playfabEnabled, awardMatchRewards } from '../playfab.js'
 
 const SEAT_COLORS = ['blue', 'red', 'green', 'yellow']
+// A 1v1 seats the two players on opposite corners (blue bottom-left, green
+// top-right) rather than side by side, so the board reads as a real duel.
+const SEAT_COLORS_2P = ['blue', 'green']
 const LOBBY_WAIT_MS = 12_000    // start with bots if the room isn't full by now
 const BOT_THINK_MS = 900        // pause before a bot acts, so play is watchable
 const RECONNECT_SECONDS = 45
@@ -146,7 +149,8 @@ export class LudoRoom extends Room {
     this.lock()
 
     // fill the room to the size it was matched for; bots take the empty seats
-    const colors = SEAT_COLORS.slice(0, this.maxClients)
+    const palette = this.maxClients === 2 ? SEAT_COLORS_2P : SEAT_COLORS
+    const colors = palette.slice(0, this.maxClients)
     humans.forEach((seat, i) => { seat.color = colors[i] })
     for (let i = humans.length; i < colors.length; i++) {
       const bot = new Seat()

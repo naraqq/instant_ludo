@@ -185,7 +185,7 @@ test('host can start early with bots via the start message', async () => {
   host.leave()
 })
 
-test('a solo room starts the instant the player joins, with one bot', async () => {
+test('a solo room starts the instant the player joins, with one bot on the opposite corner', async () => {
   const room = await colyseus.sdk.create('ludo', { name: 'Tester', solo: true, maxPlayers: 2, botThinkMs: 999_999, turnSeconds: 999 })
   quiet(room)
   await wait(60)
@@ -194,6 +194,8 @@ test('a solo room starts the instant the player joins, with one bot', async () =
   assert.equal(seats.length, 2)
   assert.equal(seats.filter((s) => s.bot).length, 1)
   assert.equal(seats.find((s) => s.name === 'Tester').color, 'blue')
+  // 1v1 seats diagonally: blue (bottom-left) vs green (top-right), not blue/red
+  assert.equal(seats.find((s) => s.bot).color, 'green')
   assert.ok(room.state.gameJson.length > 0)
   room.leave()
 })

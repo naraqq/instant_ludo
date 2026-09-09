@@ -93,7 +93,8 @@ export const BoardViewMixin = {
     this.createQuadrantFx()
   },
 
-  // A colour wash over each home quadrant that pulses on that player's turn.
+  // A colour wash + bright inset border over each home quadrant. Both pulse hard
+  // on that player's turn so it's unmistakable whose move it is.
   createQuadrantFx() {
     this.quadFx = {}
     COLORS.forEach((color) => {
@@ -101,7 +102,8 @@ export const BoardViewMixin = {
       const c = this.gridToPixel(bx + 3, by + 3)
       const rect = this.add
         .rectangle(c.x, c.y, TILE * 6, TILE * 6, COLOR_LIGHT[color], 0)
-        .setDepth(3)
+        .setStrokeStyle(7, COLOR_LIGHT[color], 0)
+        .setDepth(3) // just above the board art, under gates / runes / pawns
       this.quadFx[color] = rect
     })
   },

@@ -135,7 +135,7 @@ export const PlayersMixin = {
     arc.strokePath()
   },
 
-  refreshTurnUI(prefix) {
+  refreshTurnUI() {
     const color = this.currentColor
     const bot = this.isBot(color)
     const handoff = this._prevColor !== undefined && this._prevColor !== color
@@ -164,18 +164,18 @@ export const PlayersMixin = {
       if (!on) badge.getByName('arc')?.clear()
     })
 
-    // the active player's whole home quadrant softly blinks
+    // the active player's whole home base glows with a bright pulsing frame, so
+    // whose turn it is reads at a glance
     Object.entries(this.quadFx).forEach(([key, rect]) => {
       this.tweens.killTweensOf(rect)
-      if (key === color && !prefersReducedMotion) {
-        rect.setFillStyle(COLOR_LIGHT[key]).setAlpha(0.025)
-        this.tweens.add({
-          targets: rect, alpha: 0.12,
-          duration: 620, yoyo: true, repeat: -1, ease: EASE.breathe,
-        })
-      } else {
-        rect.setAlpha(0)
-      }
+      if (key !== color) { rect.setAlpha(0); return }
+      rect.setFillStyle(COLOR_LIGHT[key], 0.32).setStrokeStyle(7, COLOR_LIGHT[key], 0.95)
+      if (prefersReducedMotion) { rect.setAlpha(1); return }
+      rect.setAlpha(0.5)
+      this.tweens.add({
+        targets: rect, alpha: 1,
+        duration: 540, yoyo: true, repeat: -1, ease: EASE.breathe,
+      })
     })
 
     // only the active player's dice is shown, popping in near their pod

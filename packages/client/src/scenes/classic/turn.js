@@ -91,7 +91,7 @@ export const TurnMixin = {
     this.extraRollNextTurn = false
     this.diceValue = 0
     this.rawDiceValue = 0
-    this.refreshTurnUI(t('classic.noMove'))
+    this.refreshTurnUI()
     if (extraReason) this.showExtraRollCue(color, extraReason)
     this.time.delayedCall(320, () => this.beginTurn())
   },
