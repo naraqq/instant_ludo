@@ -382,14 +382,22 @@ export class NetLudoScene extends UIScene {
         && this.currentColor === this.myColor && pawn.color === this.myColor && this.canMove(pawn)
       view.setAlpha(active ? 1 : 0.92)
       this.tweens.killTweensOf(view)
+      const stackScale = view.getData('stackScale') ?? 1
+      // killing the tween above can catch reflowPawns' stack-in slide mid-flight
+      // (this runs right after it via refreshTurnUI) - land the pawn on its final
+      // stacked spot so pawns sharing a tile don't end up piled on one point
+      if (!this._animating) {
+        const off = view.getData('stackOffset') || { x: 0, y: 0 }
+        const base = this.getPawnPixel(pawn)
+        view.setPosition(base.x + off.x, base.y + off.y)
+      }
       if (active) {
         glow?.setFillStyle(COLOR_HEX[pawn.color], 0.28)
-        const stackScale = view.getData('stackScale') ?? 1
         this.tweens.add({ targets: view, scale: stackScale * 1.14, duration: 320, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
         this.createActivePawnZone(pawn, view)
       } else {
         glow?.setFillStyle(0xffffff, 0)
-        view.setScale(view.getData('stackScale') ?? 1)
+        view.setScale(stackScale)
       }
     })
   }
