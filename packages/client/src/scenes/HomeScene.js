@@ -428,7 +428,7 @@ export class HomeScene extends UIScene {
   openGameSetup(state) {
     const s = state || { opponents: 3, mode: 'cpu', difficulty: store.difficulty }
     const online = s.mode === 'online'
-    const cardH = online ? 360 : 430
+    const cardH = 430
     const { card } = this.buildModal(t('setup.title'), cardH)
     const T = -cardH / 2
     const reopen = () => this.openGameSetup({ ...s })
@@ -439,16 +439,20 @@ export class HomeScene extends UIScene {
     this.modalChip(card, 118, T + 118, 108, t('setup.online'), online, () => { s.mode = 'online'; reopen() })
 
     if (online) {
-      this.modalButton(card, 0, T + 186, 300, t('net.create'), true, () => {
+      // Solo vs a bot on the real server - starts instantly, no lobby wait.
+      this.modalButton(card, 0, T + 180, 300, t('net.solo'), true, () => {
+        this.closeModal(); this.goTo('NetLudo', { mode: 'solo', maxPlayers: 2 })
+      })
+      this.modalButton(card, 0, T + 244, 300, t('net.quick'), false, () => {
+        this.closeModal(); this.goTo('NetLudo', { mode: 'quick', maxPlayers: 4 })
+      })
+      this.modalButton(card, 0, T + 308, 300, t('net.create'), false, () => {
         this.closeModal(); this.goTo('NetLudo', { mode: 'create', maxPlayers: 2 })
       })
-      this.modalButton(card, 0, T + 250, 300, t('net.joinCode'), false, () => {
+      this.modalButton(card, 0, T + 372, 300, t('net.joinCode'), false, () => {
         const code = window.prompt(t('net.codePrompt'), '')
         if (!code) return
         this.closeModal(); this.goTo('NetLudo', { mode: 'code', code })
-      })
-      this.modalButton(card, 0, cardH / 2 - 46, 300, t('net.quick'), false, () => {
-        this.closeModal(); this.goTo('NetLudo', { mode: 'quick', maxPlayers: 4 })
       })
       return
     }

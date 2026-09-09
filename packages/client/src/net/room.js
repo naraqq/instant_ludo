@@ -60,6 +60,17 @@ export async function joinMatch({ maxPlayers = 4 } = {}) {
   return room
 }
 
+// Solo vs a bot on the real server. A private room that starts the moment we
+// join - use it to exercise the full online path (auth, join, state sync,
+// events, reconnect) without a second player.
+export async function soloMatch({ maxPlayers = 2 } = {}) {
+  if (!URL) throw new Error('online play is not configured')
+  await ready
+  const room = await getClient().create('ludo', joinOpts({ maxPlayers, solo: true }))
+  stashReconnect(room)
+  return room
+}
+
 // Create a private room; the 6-digit code lands in room.state.code to share.
 export async function createRoom({ maxPlayers = 2 } = {}) {
   if (!URL) throw new Error('online play is not configured')

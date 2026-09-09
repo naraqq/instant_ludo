@@ -149,6 +149,30 @@ test('host can start early with bots via the start message', async () => {
   host.leave()
 })
 
+test('a solo room starts the instant the player joins, with one bot', async () => {
+  const room = await colyseus.sdk.create('ludo', { name: 'Tester', solo: true, maxPlayers: 2, botThinkMs: 999_999, turnSeconds: 999 })
+  quiet(room)
+  await wait(60)
+  assert.equal(room.state.phase, 'playing')
+  const seats = [...room.state.seats.values()]
+  assert.equal(seats.length, 2)
+  assert.equal(seats.filter((s) => s.bot).length, 1)
+  assert.equal(seats.find((s) => s.name === 'Tester').color, 'blue')
+  assert.ok(room.state.gameJson.length > 0)
+  room.leave()
+})
+
+test('a solo room is kept out of quick match', async () => {
+  const solo = await colyseus.sdk.create('ludo', { name: 'Tester', solo: true, maxPlayers: 2, botThinkMs: 999_999 })
+  quiet(solo)
+  await wait(40)
+  const other = await colyseus.sdk.joinOrCreate('ludo', { name: 'Someone', maxPlayers: 2, botThinkMs: 999_999 })
+  quiet(other)
+  await wait(40)
+  assert.notEqual(other.roomId, solo.roomId, 'quick match made its own room, not the solo one')
+  solo.leave(); other.leave()
+})
+
 test('an unknown code 404s', async () => {
   const res = await colyseus.http.get('/find/000000').catch((e) => e)
   assert.equal(res.statusCode ?? res.status, 404)

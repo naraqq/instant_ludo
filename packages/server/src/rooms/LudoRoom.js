@@ -27,6 +27,10 @@ export class LudoRoom extends Room {
     this.maxClients = Math.min(4, Math.max(2, Number(options?.maxPlayers) || 2))
     this.state.maxSeats = this.maxClients
     this.private = Boolean(options?.private)
+    // solo test mode: one human + bots, starts the instant the player joins and
+    // is kept out of quick-match so nobody else can drop in.
+    this.solo = Boolean(options?.solo)
+    if (this.solo) this.setPrivate(true)
     // test hooks - production leaves these at the defaults above / in the engine
     this.botThinkMs = Number(options?.botThinkMs) || BOT_THINK_MS
     this.turnSecondsOverride = Number(options?.turnSeconds) || 0
@@ -84,7 +88,9 @@ export class LudoRoom extends Room {
 
     if (this.engine) return // running game is locked; shouldn't get here
 
-    if (this.humanSeats().length >= this.maxClients) {
+    if (this.solo) {
+      this.startMatch() // bots take every other seat right away
+    } else if (this.humanSeats().length >= this.maxClients) {
       this.startMatch()
     } else if (!this.private && !this.lobbyTimer) {
       // quick match: give real opponents a short window to arrive, then

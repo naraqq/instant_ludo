@@ -15,7 +15,7 @@ import { PowersMixin } from './classic/powers.js'
 import { CombatMixin } from './classic/combat.js'
 import { DiceAnimMixin } from './classic/diceAnim.js'
 import { TILE, BOARD_Y, TURN_SECONDS, POD } from './classic/constants.js'
-import { joinMatch, createRoom, joinByCode, tryReconnect, clearReconnect } from '../net/room.js'
+import { joinMatch, soloMatch, createRoom, joinByCode, tryReconnect, clearReconnect } from '../net/room.js'
 
 export class NetLudoScene extends UIScene {
   constructor() {
@@ -106,6 +106,7 @@ export class NetLudoScene extends UIScene {
       if (!this.room) {
         if (c.mode === 'create') this.room = await createRoom({ maxPlayers: c.maxPlayers })
         else if (c.mode === 'code') this.room = await joinByCode(c.code)
+        else if (c.mode === 'solo') this.room = await soloMatch({ maxPlayers: c.maxPlayers })
         else this.room = await joinMatch({ maxPlayers: c.maxPlayers })
       }
     } catch (err) {
