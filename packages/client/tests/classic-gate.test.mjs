@@ -345,11 +345,8 @@ for (const steps of [0, 30, 51, 56]) {
     }
     const shield = { setY(y) { this.y = y } }
     const zone = { setY(y) { this.y = y } }
-    const restShadow = {
-      setVisible(v) { this.visible = v; return this },
-      setPosition(x, y) { this.x = x; this.y = y; return this },
-    }
-    const parts = { token: { getByName: () => sprite }, shield, zone, restShadow }
+    const base = { setY(y) { this.y = y } }
+    const parts = { token: { getByName: () => sprite }, shield, zone, base }
     const data = { onBoard: false }
     const view = { x: 100, y: 200,
       getData: key => data[key], setData: (key, value) => { data[key] = value },
@@ -361,6 +358,7 @@ for (const steps of [0, 30, 51, 56]) {
     assert.equal(sprite.y - sprite.height * sprite.scale / 2, -4)
     assert.equal(shield.y, -4)
     assert.equal(zone.y, -4)
+    assert.equal(base.y, 18)
     assert.equal(view.x, 100)
     assert.equal(view.y, 200)
     const changes = s.killed.length
@@ -370,6 +368,7 @@ for (const steps of [0, 30, 51, 56]) {
     assert.equal(sprite.y, 12)
     assert.equal(sprite.height * sprite.scale, 64)
     assert.equal(shield.y, -16)
+    assert.equal(base.y, 8)
   })
 }
 

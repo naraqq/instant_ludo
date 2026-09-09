@@ -114,8 +114,8 @@ export const PawnsMixin = {
     const token = view.getByName('token')
     const sprite = token.getByName('sprite')
     this.tweens.killTweensOf(sprite)
-    sprite.setY(onBoard ? 22 : 12).setScale(fitSprite(sprite, onBoard ? TRACK_H : YARD_H))
-    view.getByName('base').setY(onBoard ? 16 : 8)
+    sprite.setY(onBoard ? 24 : 12).setScale(fitSprite(sprite, onBoard ? TRACK_H : YARD_H))
+    view.getByName('base')?.setY(onBoard ? 18 : 8)
     view.getByName('shield').setY(onBoard ? -4 : -16)
     view.getByName('zone').setY(onBoard ? -4 : -14)
   },
