@@ -7,11 +7,14 @@ import { samplePawnPath } from '../../ui/pawnMotion.js'
 import { COLOR_HEX, COLOR_LIGHT } from '@ludo/engine'
 import { TILE } from './constants.js'
 
-// Character art is authored feet-on-the-bottom-edge; fit it to a target height
-// but never let a wide sprite (earth's rocks, air's wisps) overrun its tile.
+// Character art is authored feet-on-the-bottom-edge; fit it to a target height.
+// Real Ludo pieces sit proudly on their square and overhang it a little - the
+// tiles can't grow on a phone, so the pawns carry the size instead.
 function fitSprite(sprite, targetH) {
-  return Math.min(targetH / sprite.height, (TILE * 1.12) / sprite.width)
+  return Math.min(targetH / sprite.height, (TILE * 1.38) / sprite.width)
 }
+const YARD_H = 72
+const TRACK_H = 66
 
 export const PawnsMixin = {
   createPawns() {
@@ -30,10 +33,10 @@ export const PawnsMixin = {
     const c = this.add.container(0, 0).setDepth(20)
     c.setData('onBoard', false)
     // soft contact shadow, drawn behind everything; sized in layoutPawnView
-    const restShadow = this.add.ellipse(0, 2, 30, 9, 0x0a0d20, 0.28)
+    const restShadow = this.add.ellipse(0, 2, 34, 10, 0x0a0d20, 0.3)
     restShadow.name = 'restShadow'
     restShadow.setVisible(false)
-    const glow = this.add.circle(0, -4, 25, COLOR_HEX[color], 0)
+    const glow = this.add.circle(0, -4, 28, COLOR_HEX[color], 0)
     glow.name = 'glow'
 
     // protective bubble (hidden until the earth power is used)
@@ -48,10 +51,10 @@ export const PawnsMixin = {
     token.name = 'token'
     // Yard layout; track pawns use a lower, tighter layout in layoutPawnView.
     const sprite = this.add.image(0, 12, `pawn-${color}`).setOrigin(0.5, 1)
-    sprite.setScale(fitSprite(sprite, 64))
+    sprite.setScale(fitSprite(sprite, YARD_H))
     sprite.name = 'sprite'
     token.add(sprite)
-    const zone = this.add.zone(0, -14, 58, 68)
+    const zone = this.add.zone(0, -14, 64, 74)
     zone.name = 'zone'
     c.add([restShadow, glow, shield, token, zone])
     return c
@@ -64,7 +67,7 @@ export const PawnsMixin = {
     const token = view.getByName('token')
     const sprite = token.getByName('sprite')
     this.tweens.killTweensOf(sprite)
-    sprite.setY(onBoard ? 24 : 12).setScale(fitSprite(sprite, onBoard ? 56 : 64))
+    sprite.setY(onBoard ? 26 : 12).setScale(fitSprite(sprite, onBoard ? TRACK_H : YARD_H))
     view.getByName('shield').setY(onBoard ? -4 : -16)
     view.getByName('zone').setY(onBoard ? -4 : -14)
     // contact shadow only when out on the track (yards paint their own ground)
@@ -79,7 +82,7 @@ export const PawnsMixin = {
     const sprite = token.getByName('sprite')
     ;[view, token, sprite].forEach(target => this.tweens.killTweensOf(target))
     token.setPosition(0, 0).setAngle(0).setScale(1)
-    sprite.setScale(fitSprite(sprite, 56))
+    sprite.setScale(fitSprite(sprite, TRACK_H))
     // the moving hop/glide draws its own shadow; hide the resting one until landing
     const restShadow = view.getByName('restShadow')
     restShadow.setVisible(false)

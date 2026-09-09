@@ -143,33 +143,33 @@ export const BoardViewMixin = {
       g.fillRect(x, y, TILE, 4)
       g.fillStyle(COLOR_DARK[laneColor], 0.18)
       g.fillRect(x, y + TILE - 4, TILE, 4)
-      g.lineStyle(1, COLOR_DARK[laneColor], 0.36)
+      g.lineStyle(2, COLOR_DARK[laneColor], 0.5)
       g.strokeRect(x, y, TILE, TILE)
     } else if (opts.owner) {
       g.fillStyle(0xffffff, 0.22)
       g.fillRect(x, y, TILE, 5)
       g.fillStyle(COLOR_DARK[opts.owner], 0.28)
       g.fillRect(x, y + TILE - 5, TILE, 5)
-      g.lineStyle(1.5, COLOR_DARK[opts.owner], 0.5)
+      g.lineStyle(2.5, COLOR_DARK[opts.owner], 0.62)
       g.strokeRect(x, y, TILE, TILE)
     } else if (opts.safe) {
       g.fillStyle(0xffffff, 0.18)
       g.fillRect(x, y, TILE, 5)
       g.fillStyle(0x000000, 0.08)
       g.fillRect(x, y + TILE - 5, TILE, 5)
-      g.lineStyle(1, BOARD_PALETTE.grid, 0.45)
+      g.lineStyle(1.75, BOARD_PALETTE.grid, 0.62)
       g.strokeRect(x, y, TILE, TILE)
     } else {
-      g.lineStyle(1, BOARD_PALETTE.grid, 0.48)
+      g.lineStyle(1.75, BOARD_PALETTE.grid, 0.62)
       g.strokeRect(x, y, TILE, TILE)
     }
     if (opts.safe) {
       this._boardExtras?.push(this.add.text(x + TILE / 2, y + TILE / 2, '★', {
         fontFamily: 'Verdana, sans-serif',
-        fontSize: 16,
-        color: opts.owner ? '#ffffff' : '#4b5563',
+        fontSize: 18,
+        color: opts.owner ? '#ffffff' : '#3f4756',
         fontStyle: 'bold',
-      }).setOrigin(0.5).setAlpha(opts.owner ? 0.95 : 0.72))
+      }).setOrigin(0.5).setAlpha(opts.owner ? 0.95 : 0.8))
     }
   },
 
