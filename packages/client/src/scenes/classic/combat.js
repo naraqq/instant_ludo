@@ -2,6 +2,7 @@
 // sequence, the elemental burst that goes with it, plus the shared particle
 // textures and the generic pop burst.
 import Phaser from 'phaser'
+import { EASE, dur, prefersReducedMotion } from '../../ui/tokens.js'
 import { sfx } from '../../audio.js'
 import { COLOR_HEX, SAFE_STOPS } from '@ludo/engine'
 
@@ -30,70 +31,97 @@ export const CombatMixin = {
   playCaptureSequence(attacker, captured, onComplete) {
     this.phase = 'capture'
     this.captureCounts[attacker.color] += captured.length
-    sfx.capture()
-    sfx.buzz([16, 40, 24])
-
     const attackerView = this.pawnViews.get(attacker)
-    const attackerScale = attackerView.getData('stackScale') ?? 1
-    this.tweens.add({
-      targets: attackerView,
-      scale: attackerScale * 1.22,
-      duration: 120,
-      yoyo: true,
-      ease: 'Back.easeOut',
-    })
 
     let pending = captured.length
     captured.forEach(({ pawn }, index) => {
-      this.time.delayedCall(index * 130, () => {
-        const victim = this.pawnViews.get(pawn)
-        const start = { x: victim.x, y: victim.y }
-        this.playElementalSkill(attacker.color, victim.x, victim.y)
+      this.time.delayedCall(index * 200, () => {
+        const victimView = this.pawnViews.get(pawn)
         pawn.steps = -1
         pawn.finished = false
         const home = this.getPawnPixel(pawn)
-        const mid = {
-          x: start.x + (home.x - start.x) * 0.42 + Phaser.Math.Between(-35, 35),
-          y: Math.min(start.y, home.y) - 95,
-        }
-        victim.setDepth(55)
-        this.tweens.add({
-          targets: victim,
-          x: start.x + Phaser.Math.Between(-28, 28),
-          y: start.y - 54,
-          angle: Phaser.Math.Between(-24, 24),
-          scale: (victim.getData('stackScale') ?? 1) * 1.08,
-          duration: 190,
-          ease: 'Cubic.easeOut',
-          onComplete: () => {
-            this.tweens.add({
-              targets: victim,
-              x: mid.x,
-              y: mid.y,
-              angle: Phaser.Math.Between(-18, 18),
-              duration: 280,
-              ease: 'Sine.easeInOut',
-              onComplete: () => {
-                this.tweens.add({
-                  targets: victim,
-                  x: home.x,
-                  y: home.y,
-                  angle: 0,
-                  scale: victim.getData('stackScale') ?? 1,
-                  duration: 330,
-                  ease: 'Back.easeOut',
-                  onComplete: () => {
-                    victim.setDepth(20)
-                    this.popAt(home.x, home.y, COLOR_HEX[pawn.color])
-                    pending--
-                    if (pending === 0) onComplete?.()
-                  },
-                })
-              },
-            })
-          },
+        this.kickPawn(attacker.color, attackerView, pawn.color, victimView, home, () => {
+          pending--
+          if (pending === 0) onComplete?.()
         })
       })
+    })
+  },
+
+  // The attacker pawn winds up and slams into the victim; the victim is booted
+  // off its square and cartwheels home. Shared by Classic and online play.
+  kickPawn(attackerColor, attackerView, victimColor, victimView, home, onDone) {
+    const to = home || (victimView && { x: victimView.x, y: victimView.y })
+    if (!victimView || !to) { onDone?.(); return }
+
+    if (!attackerView || prefersReducedMotion || this._behind) {
+      // no attacker on hand (or reduced motion / catching up) - just send it home
+      this.playElementalSkill?.(attackerColor, victimView.x, victimView.y)
+      sfx.capture()
+      const vBase = victimView.getData('stackScale') ?? 1
+      this.tweens.add({
+        targets: victimView, x: to.x, y: to.y, scale: vBase, angle: 0,
+        duration: dur(this._behind ? 110 : 300), ease: 'Back.easeOut',
+        onComplete: () => { victimView.setDepth(20); this.popAt(to.x, to.y, COLOR_HEX[victimColor]); onDone?.() },
+      })
+      return
+    }
+
+    const A = { x: attackerView.x, y: attackerView.y }
+    const hit = { x: victimView.x, y: victimView.y }
+    let nx = hit.x - A.x
+    let ny = hit.y - A.y
+    const d = Math.hypot(nx, ny) || 1
+    nx /= d; ny /= d
+    const spin = nx >= 0 ? 1 : -1
+
+    attackerView.setDepth(44)
+    this.tweens.killTweensOf(attackerView)
+    this.tweens.chain({
+      targets: attackerView,
+      onComplete: () => attackerView.setDepth(20),
+      tweens: [
+        { x: A.x - nx * 11, y: A.y - ny * 11, duration: dur(100), ease: 'Sine.easeOut' },
+        {
+          x: A.x + nx * (d * 0.5), y: A.y + ny * (d * 0.5), duration: dur(75), ease: 'Quad.easeIn',
+          onComplete: () => this.kickImpact(attackerColor, hit, nx, ny, spin, victimColor, victimView, to, onDone),
+        },
+        { x: A.x, y: A.y, duration: dur(230), ease: 'Back.easeOut' },
+      ],
+    })
+  },
+
+  kickImpact(attackerColor, at, nx, ny, spin, victimColor, victimView, home, onDone) {
+    sfx.capture()
+    sfx.buzz?.([14, 36, 16])
+    this.cameras.main.shake(dur(130), 0.007)
+
+    const shock = this.add.circle(at.x, at.y, 10, 0xffffff, 0).setStrokeStyle(6, 0xffffff, 0.95).setDepth(58)
+    this.tweens.add({ targets: shock, radius: 54, alpha: 0, duration: dur(300), ease: EASE.out, onComplete: () => shock.destroy() })
+    const shock2 = this.add.circle(at.x, at.y, 6, COLOR_HEX[attackerColor], 0).setStrokeStyle(4, COLOR_HEX[attackerColor], 0.85).setDepth(57)
+    this.tweens.add({ targets: shock2, radius: 42, alpha: 0, duration: dur(380), delay: dur(50), ease: EASE.out, onComplete: () => shock2.destroy() })
+    this.playElementalSkill?.(attackerColor, at.x, at.y)
+    this.popAt(at.x, at.y, 0xffffff)
+
+    victimView.setDepth(56)
+    const vBase = victimView.getData('stackScale') ?? 1
+    const kb = { x: at.x + nx * 54, y: at.y + ny * 54 - 36 }
+    const mid = {
+      x: (kb.x + home.x) / 2 + Phaser.Math.Between(-18, 18),
+      y: Math.min(kb.y, home.y) - 96,
+    }
+    this.tweens.chain({
+      targets: victimView,
+      onComplete: () => {
+        victimView.setAngle(0).setScale(vBase).setDepth(20)
+        this.popAt(home.x, home.y, COLOR_HEX[victimColor])
+        onDone?.()
+      },
+      tweens: [
+        { x: kb.x, y: kb.y, angle: spin * 150, scale: vBase * 1.12, duration: dur(200), ease: 'Quad.easeOut' },
+        { x: mid.x, y: mid.y, angle: spin * 470, duration: dur(280), ease: 'Sine.easeIn' },
+        { x: home.x, y: home.y, angle: spin * 720, scale: vBase, duration: dur(300), ease: 'Back.easeOut' },
+      ],
     })
   },
 

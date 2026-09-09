@@ -491,6 +491,7 @@ export class NetLudoScene extends UIScene {
   playMove(ev) {
     const pawn = this.pawnRef(ev.color, ev.pawnId)
     if (!pawn) return Promise.resolve()
+    this._lastMoved = { color: ev.color, pawnId: ev.pawnId } // the attacker if a capture follows
     const pm = this._predicted
     if (pm && pm.color === ev.color && pm.pawnId === ev.pawnId && pm.to === ev.to) {
       // we already started this exact move on tap - let it finish
@@ -541,11 +542,29 @@ export class NetLudoScene extends UIScene {
   playCapture(ev) {
     const victim = this.pawnRef(ev.color, ev.id)
     if (!victim) return Promise.resolve()
-    victim.steps = -1; victim.finished = false
+    const victimView = this.pawnViews.get(victim)
     this.captureCounts[ev.by] = (this.captureCounts[ev.by] || 0) + 1
-    const v = this.pawnViews.get(victim)
-    if (v) this.playElementalSkill?.(ev.by, v.x, v.y)
-    return new Promise((res) => { this.positionPawn(victim, true); this.time.delayedCall(dur(300), res) })
+
+    // the attacker is whatever pawn of ev.by just moved (the `moved` event runs
+    // right before this); fall back to the nearest ev.by pawn to the victim
+    let atk = this._lastMoved?.color === ev.by
+      ? this.pawnRef(this._lastMoved.color, this._lastMoved.pawnId) : null
+    if (!atk && victimView) {
+      let best = Infinity
+      for (const p of this.pawns) {
+        if (p.color !== ev.by || p.steps < 0 || p.finished) continue
+        const pv = this.pawnViews.get(p)
+        if (!pv) continue
+        const dd = Math.hypot(pv.x - victimView.x, pv.y - victimView.y)
+        if (dd < best) { best = dd; atk = p }
+      }
+    }
+    const attackerView = atk ? this.pawnViews.get(atk) : null
+
+    victim.steps = -1
+    victim.finished = false
+    const home = this.getPawnPixel(victim)
+    return new Promise((res) => this.kickPawn(ev.by, attackerView, ev.color, victimView, home, res))
   }
 
   playShieldBlockEv(ev) {
