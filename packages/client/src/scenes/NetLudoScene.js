@@ -3,7 +3,7 @@
 // renders `room.state` and plays the `events` the server broadcasts.
 import { W, H } from '../config.js'
 import { UIScene } from '../ui/UIScene.js'
-import { EASE, dur } from '../ui/tokens.js'
+import { EASE, dur, prefersReducedMotion } from '../ui/tokens.js'
 import { sfx } from '../audio.js'
 import { t } from '../i18n.js'
 import { COLOR_HEX, COLORS, PAWN_ASSETS, POWER_TYPES, START_INDEX } from '@ludo/engine'
@@ -15,7 +15,7 @@ import { PowersMixin } from './classic/powers.js'
 import { CombatMixin } from './classic/combat.js'
 import { DiceAnimMixin } from './classic/diceAnim.js'
 import { TURN_SECONDS, MOVE_SECONDS, POD } from './classic/constants.js'
-import { joinMatch, soloMatch, createRoom, joinByCode, tryReconnect, clearReconnect } from '../net/room.js'
+import { joinMatch, soloMatch, createRoom, joinByCode, tryReconnect, clearReconnect, stashReconnect } from '../net/room.js'
 
 export class NetLudoScene extends UIScene {
   constructor() {
@@ -29,6 +29,27 @@ export class NetLudoScene extends UIScene {
   }
 
   init(data) {
+    this._run = (this._run || 0) + 1
+    this._disposed = false
+    this._connected = false
+    this._animating = false
+    this.pawnViews = new Map()
+    this.gateViews = []
+    this.bonusRuneViews = new Map()
+    this.activePawnZones = []
+    this.shieldedColors = new Set()
+    this.shieldExpiresOnOwnRoll = new Set()
+    this.homeMarks = []
+    this.header = this.lobby = this.lobbyCode = this.lobbyStartZone = null
+    this._gatePickChoose = this._gatePickOwner = this.gatePicker = null
+    this._gatePickerPanel = this._gatePickerDim = this.gatePickerTimeout = null
+    this._pendingCue = this._lastMoved = null
+    this._resultShown = false
+    this.controllerPicker = null
+    this.playerBadges = {}
+    this.cornerDice = {}
+    this._latestGame = null
+
     this.matchConfig = { mode: 'quick', maxPlayers: 2, ...data }
     this.g = null
     this.seats = {}
@@ -54,7 +75,7 @@ export class NetLudoScene extends UIScene {
   get powerInventory() { return this.g?.inventory ?? {} }
   get youColor() { return this.myColor }
   get powerBarColor() { return this.myColor }
-  get myTurn() { return Boolean(this.g) && this.currentColor === this.myColor && !this._animating }
+  get myTurn() { return Boolean(this.g) && this.currentColor === this.myColor && !this._animating && this._connected && !this._windup }
   get sixForced() { return { has: () => false } }
 
   isBot(color) { return this.seats[color]?.bot ?? false }
@@ -72,7 +93,7 @@ export class NetLudoScene extends UIScene {
   }
 
   preload() {
-    this.makeBackgroundTexture('bg-classic', '#35246f', '#4f3a9e')
+    this.makeBackgroundTexture('bg-classic', '#101c30', '#1c3048')
     this.makeElementalEffectTextures()
     Object.entries(PAWN_ASSETS).forEach(([color, asset]) => {
       this.load.image(`pawn-${color}`, `assets/sprites/pawn-${asset}.png`)
@@ -100,44 +121,85 @@ export class NetLudoScene extends UIScene {
 
     this.events.once('shutdown', () => this.teardown())
 
+    const run = this._run
+    let joined
     try {
       const c = this.matchConfig
-      this.room = await tryReconnect()
-      if (!this.room) {
-        if (c.mode === 'create') this.room = await createRoom({ maxPlayers: c.maxPlayers })
-        else if (c.mode === 'code') this.room = await joinByCode(c.code)
-        else if (c.mode === 'solo') this.room = await soloMatch({ maxPlayers: c.maxPlayers })
-        else this.room = await joinMatch({ maxPlayers: c.maxPlayers })
+      joined = c.mode === 'quick' ? await tryReconnect() : null
+      if (!joined) {
+        if (c.mode === 'create') joined = await createRoom({ maxPlayers: c.maxPlayers })
+        else if (c.mode === 'code') joined = await joinByCode(c.code)
+        else if (c.mode === 'solo') joined = await soloMatch({ maxPlayers: c.maxPlayers })
+        else joined = await joinMatch({ maxPlayers: c.maxPlayers })
       }
     } catch (err) {
+      if (run !== this._run || this._disposed) return
       this.status.setText(err.message || t('net.connectFailed'))
       this.time.delayedCall(2200, () => this.goTo('Home'))
       return
     }
+    if (run !== this._run || this._disposed) { joined.leave().catch(() => {}); return }
+    this.room = joined
+    this._connected = true
     this.bindRoom()
+    const saveSeat = () => { if (this.room && !this.gameOver) stashReconnect(this.room) }
+    this.time.addEvent({ delay: 15000, loop: true, callback: saveSeat })
+    window.addEventListener('pagehide', saveSeat)
+    this.events.once('shutdown', () => window.removeEventListener('pagehide', saveSeat))
   }
 
   teardown() {
+    this._disposed = true
+    this._connected = false
     this._turnTimer?.remove(false)
-    try { this.room?.leave() } catch { /* already gone */ }
+    this._windup?.stop?.()
+    for (const pawn of this.pawns) pawn._cancelMotion?.()
+    clearReconnect()
+    this.room?.leave().catch(() => {})
     this.room = null
   }
 
   bindRoom() {
     const room = this.room
+    room.reconnection.minUptime = 0
+    room.onDrop(() => {
+      if (this._disposed || this.room !== room) return
+      this._connected = false
+      this._windup?.stop?.(); this._windup = null
+      for (const pawn of this.pawns) pawn._cancelMotion?.()
+      this._predicted = this._moveAnimDone = null
+      if (!this._pendingBatches) this._animating = false
+      stashReconnect(room)
+      this.status?.setVisible(true).setText(t('net.reconnecting'))
+      this.clearActivePawnZones()
+    })
+    room.onReconnect(() => {
+      if (this._disposed || this.room !== room) return
+      this._connected = true
+      stashReconnect(room)
+      this.status?.setVisible(false)
+      this._windup?.stop?.(); this._windup = null
+      if (!this._pendingBatches) this._animating = false
+      this.onStateChange()
+    })
     room.onError((code, msg) => console.warn('[net] room error', code, msg))
-    room.onLeave(() => { if (!this.gameOver) this.status?.setVisible(true).setText(t('net.disconnected')) })
+    room.onLeave(() => { if (this._disposed || this.room !== room) return; this._connected = false; clearReconnect(); if (!this.gameOver) this.status?.setVisible(true).setText(t('net.disconnected')) })
     room.onMessage('rejected', (m) => {
+      if (this._disposed || this.room !== room) return
       this.showToast(m?.error || 'rejected')
       // an optimistic roll/move was refused - drop the prediction and snap back
       this._windup?.stop?.(); this._windup = null
+      for (const pawn of this.pawns) pawn._cancelMotion?.()
       this._predicted = null; this._moveAnimDone = null
       if (this.g) { this.syncPositions(false); this.syncBonusRunes() }
       this._animating = false
       this.refreshTurn()
     })
     room.onMessage('events', (events) => this.enqueue(events))
-    room.onStateChange(() => this.onStateChange())
+    room.onStateChange(() => {
+      if (!this._disposed && this.room === room) this.time.delayedCall(0, () => this.onStateChange())
+    })
+    this.onStateChange()
   }
 
   // ------------------------------------------------------------------ lobby
@@ -156,7 +218,7 @@ export class NetLudoScene extends UIScene {
 
   onStateChange() {
     const s = this.room?.state
-    if (!s) return
+    if (!s?.seats) return
     this.seats = this.readSeats()
 
     if (s.phase === 'lobby' || !s.gameJson) {
@@ -164,19 +226,25 @@ export class NetLudoScene extends UIScene {
       return
     }
     this.lobby?.destroy(); this.lobby = null
+    this.lobbyStartZone?.destroy(); this.lobbyStartZone = null
+    this.lobbyCode = null
 
     const g = JSON.parse(s.gameJson)
     const first = !this.g
+    this._latestGame = g
+    if (!first && (this._animating || this._pendingBatches)) return
     this.g = g
     this.syncShields()
 
-    if (first) { this.status?.setVisible(false); this.buildBoard() }
+    if (first) { this.status?.setY(190).setVisible(false); this.buildBoard() }
     else if (!this._animating && !this._pendingBatches) {
       // no animation in flight - safe to jump straight to the server's truth
       this.syncPositions(true)
       this.syncBonusRunes()
       this.refreshTurn()
     }
+    if (g.phase === 'gameover' && !this._resultShown) this.showGameOver({ winner: g.winner })
+    this.restoreGatePicker()
     // while animating, playEvents() owns the turn UI so it never runs ahead
   }
 
@@ -185,32 +253,71 @@ export class NetLudoScene extends UIScene {
     const max = s.maxSeats || this.matchConfig.maxPlayers || 2
     this.status?.setVisible(true).setText(t('net.waiting', { n: humans, max }))
     if (this.lobby) { this.updateLobby(s); return }
-    this.lobby = this.add.container(W / 2, H / 2 + 60).setDepth(50)
+    this.makeRoundedRectTexture('net-lobby', 588, 384, 0x21364c, 0x101e31, 28, 0x48647a)
+    this.lobby = this.add.container(W / 2, H / 2).setDepth(49)
+    this.lobby.add(this.add.image(0, 0, 'net-lobby'))
+    this.status.setY(H / 2 - 144)
+    const palette = ['blue', 'green', 'red', 'yellow']
+    this.lobbySeats = Array.from({ length: max }, (_, i) => {
+      const x = (i - (max - 1) / 2) * 122
+      const color = palette[i]
+      this.lobby.add(this.add.circle(x, -65, 28, COLOR_HEX[color], .14))
+      this.lobby.add(this.add.image(x, -65, `pawn-${color}-sm`).setDisplaySize(48, 48))
+      const label = this.add.text(x, -22, '', {
+        fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#bdcfdf',
+      }).setOrigin(.5)
+      this.lobby.add(label)
+      return label
+    })
     if (s.code) {
-      this.lobby.add(this.add.text(0, 0, t('net.roomCode'), {
-        fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#b9a9ef',
-      }).setOrigin(0.5))
-      this.lobbyCode = this.add.text(0, 34, s.code, {
-        fontFamily: 'Verdana, sans-serif', fontSize: 46, color: '#ffe27a', fontStyle: 'bold',
-      }).setOrigin(0.5).setStroke('#2a1f52', 6)
+      this.lobby.add(this.add.text(0, 20, t('net.roomCode'), {
+        fontFamily: 'Verdana, sans-serif', fontSize: 12, color: '#90adbf',
+      }).setOrigin(.5))
+      this.lobbyCode = this.add.text(0, 58, s.code, {
+        fontFamily: 'Verdana, sans-serif', fontSize: 42, color: '#ffe3a0', fontStyle: 'bold',
+      }).setOrigin(.5)
       this.lobby.add(this.lobbyCode)
+      const copy = this.add.zone(0, 58, 260, 66).setInteractive({ useHandCursor: true })
+      copy.on('pointerup', async () => {
+        try {
+          await navigator.clipboard.writeText(s.code)
+          if (!this._disposed) this.showToast(t('net.copied'))
+        } catch { if (!this._disposed) this.showToast(s.code) }
+      })
+      this.lobby.add(copy)
     }
     const isHost = s.hostId === this.room.sessionId
     if (isHost) {
-      this.makeRoundedRectTexture('net-start', 220, 54, 0x34c759, 0x1f9d43, 15, 0x9affc0)
-      const btn = this.add.container(0, 100, [
+      this.makeRoundedRectTexture('net-start', 220, 54, 0x22c48d, 0x10ad85, 15, 0x64dfad)
+      const btn = this.add.container(0, 136, [
         this.add.image(0, 0, 'net-start'),
         this.add.text(0, 0, t('net.startNow'), {
           fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#08240f', fontStyle: 'bold',
         }).setOrigin(0.5),
       ])
       this.lobby.add(btn)
-      this.makeHitZone(W / 2, H / 2 + 160, 220, 54).setDepth(51)
-        .on('pointerup', () => { sfx.tap(); this.room.send('start', {}) })
+      this.lobbyStartZone = this.makeHitZone(W / 2, H / 2 + 136, 220, 54).setDepth(51)
+      this.addPressFeedback(this.lobbyStartZone, btn, () => { sfx.tap(); this.room.send('start', {}) })
     }
+    this.updateLobby(s)
   }
 
-  updateLobby(s) { if (this.lobbyCode && s.code) this.lobbyCode.setText(s.code) }
+  updateLobby(s) {
+    const seats = [...s.seats.values()].filter(seat => !seat.bot)
+    this.lobbySeats?.forEach((label, i) => label.setText((seats[i]?.name || '···').slice(0, 14)))
+    const isHost = s.hostId === this.room.sessionId
+    if (isHost && !this.lobbyStartZone) {
+      this.lobby.destroy(); this.lobby = null; this.lobbyCode = null
+      this.showLobby(s)
+    } else if (this.lobbyCode && s.code) this.lobbyCode.setText(s.code)
+  }
+
+  restoreGatePicker() {
+    if (this.g?.pendingGate?.color === this.myColor && !this._gatePickChoose) {
+      this._gatePickOwner = this.myColor
+      this.showGatePicker(this.myColor, key => this.send({ type: 'pickGateRune', key }))
+    } else if (!this.g?.pendingGate && this._gatePickChoose) this.closeGatePicker()
+  }
 
   // ------------------------------------------------------------------ board
 
@@ -259,7 +366,10 @@ export class NetLudoScene extends UIScene {
   syncPositions(animate) {
     for (const sp of this.g.pawns) {
       const p = this.pawnRef(sp.color, sp.id)
-      if (p) { p.steps = sp.steps; p.finished = sp.finished }
+      if (p) {
+        if (sp.finished && !p.finished) this.markPawnHome(p)
+        p.steps = sp.steps; p.finished = sp.finished
+      }
     }
     this.reflowPawns(animate)
   }
@@ -283,7 +393,11 @@ export class NetLudoScene extends UIScene {
   refreshTurn() {
     if (!this.g) return
     this.gameOver = this.g.phase === 'gameover'
-    this.phase = this.gameOver ? 'over' : this._animating ? 'moving' : this.g.phase === 'move' ? 'move' : 'roll'
+    if (this.controllerPicker && (this.currentColor !== this.myColor || this.g.phase !== 'roll')) {
+      this.closeControllerPicker()
+      this.forcedDiceValue = null
+    }
+    this.phase = this.gameOver ? 'over' : (this._animating || this._windup || !this._connected) ? 'moving' : this.g.phase === 'move' ? 'move' : 'roll'
     this.doubleNextRoll = this.g.doubleNext
     this.refreshTurnUI?.()
     this.updateHeader()
@@ -323,14 +437,14 @@ export class NetLudoScene extends UIScene {
   // ----------------------------------------------------------------- input
 
   send(action) {
-    if (!this.room || this._animating) return
-    if (this.currentColor !== this.myColor) return
+    if (!this.room || !this._connected || this._disposed) return
+    if (action.type !== 'pickGateRune' && (this._animating || this.currentColor !== this.myColor)) return
     this.room.send('action', action)
   }
 
   rollDice() {
-    if (this.phase !== 'roll') return
-    if (this.currentColor !== this.myColor || this._animating) return
+    if (!this._connected || this.phase !== 'roll') return
+    if (this.currentColor !== this.myColor || this._animating || this._windup) return
     // you must choose the gate rune before rolling on - nudge the picker
     if (this._gatePickChoose) { this.bumpGatePicker?.(); return }
     sfx.tap()
@@ -345,22 +459,22 @@ export class NetLudoScene extends UIScene {
   }
 
   usePower(key) {
-    if (this.phase !== 'roll' || this.currentColor !== this.myColor || this._animating) return
+    if (!this._connected || this.phase !== 'roll' || this.currentColor !== this.myColor || this._animating || this._windup) return
     if (this._gatePickChoose) { this.bumpGatePicker?.(); return }
     if (!this.g.inventory[this.myColor]?.[key]) { this.flashPower(key); return }
     if (key === 'water') { this.showControllerPicker(); return }
     sfx.power()
     this.flashPower(key)
+    this._animating = true
     this.room.send('action', { type: 'usePower', key })
     if (key === 'fire') {
-      this._animating = true
       this._windup = this.diceWindup(this.myColor, { doubled: true })
-      this.time.delayedCall(160, () => this.room.send('action', { type: 'roll' }))
+      this.room.send('action', { type: 'roll' })
     }
   }
 
   tryMovePawn(pawn) {
-    if (this.phase !== 'move' || this.currentColor !== this.myColor || this._animating) return
+    if (!this._connected || this.phase !== 'move' || this.currentColor !== this.myColor || this._animating || this._windup) return
     if (pawn.color !== this.myColor || !this.canMove(pawn)) return
     sfx.tap()
     this._animating = true
@@ -393,7 +507,7 @@ export class NetLudoScene extends UIScene {
       token.setScale(1)
       if (active) {
         glow?.setFillStyle(COLOR_HEX[pawn.color], 0.28)
-        this.tweens.add({ targets: token, scale: 1.13, duration: 320, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+        if (!prefersReducedMotion) this.tweens.add({ targets: token, scale: 1.08, duration: 320, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
         this.createActivePawnZone(pawn, view)
       } else {
         glow?.setFillStyle(0xffffff, 0)
@@ -403,36 +517,51 @@ export class NetLudoScene extends UIScene {
 
   // -------------------------------------------------------- event playback
 
-  enqueue(events) {
+  enqueue(batch) {
+    if (this._disposed) return
+    const events = Array.isArray(batch) ? batch : batch.events
+    if (!Array.isArray(events)) return
+    const run = this._run
     this._pendingBatches++
-    this._queue = this._queue
-      .then(() => this.playEvents(events))
-      .catch((e) => console.warn('[net] playback', e))
-      .finally(() => { this._pendingBatches-- })
+    this._queue = this._queue.then(async () => {
+      if (this._disposed || run !== this._run) return
+      if (!this.g) this.onStateChange()
+      if (!this.g) return
+      if (batch.game) this.g = batch.game
+      await this.playEvents(events, run)
+    }).catch((e) => {
+      console.warn('[net] playback', e)
+      if (!this._disposed && run === this._run) {
+        this._windup?.stop?.(); this._windup = null
+        this._animating = false
+        this._predicted = null
+      }
+    }).finally(() => {
+      if (this._disposed || run !== this._run) return
+      this._pendingBatches--
+      if (!this._pendingBatches) this.onStateChange()
+    })
   }
 
   // more turns are already waiting behind the one we're playing - the opponent
   // is acting faster than we can animate, so compress playback to catch up
   get _behind() { return this._pendingBatches > 1 }
 
-  async playEvents(events) {
+  async playEvents(events, run = this._run) {
     this._animating = true
     this.phase = 'moving'
     this.updatePawnHighlights()
     this._pendingCue = null
     for (const ev of events) {
       // eslint-disable-next-line no-await-in-loop
+      if (this._disposed || run !== this._run) return
       await this.playEvent(ev)
     }
-    // safety: a spin with no matching 'rolled' event - land it on the truth
-    if (this._windup) {
-      this._windup.stop?.(); this._windup = null
-      this.restDice(this.myColor, this.g.raw || 1, { doubled: this.g.doubleNext })
-    }
+    if (this._disposed || run !== this._run) return
     this._predicted = null
     this._moveAnimDone = null
     this._animating = false
-    this.syncPositions(true)
+    this.syncPositions(!this._behind)
     this.syncBonusRunes()
     this.syncShields()
     this.refreshTurn()
@@ -481,7 +610,7 @@ export class NetLudoScene extends UIScene {
 
   playPowerUsed(ev) {
     if (ev.color !== this.myColor) {
-      if (ev.key === 'water') this.forcedDiceValue = ev.value ?? null
+      // Opponent water never changes the local player's selected face.
       this.playPowerEffect?.(ev.color, ev.key)
     }
     if (ev.key === 'earth') { this.syncShields(); this.playShieldAura?.(ev.color) }
@@ -513,7 +642,7 @@ export class NetLudoScene extends UIScene {
     this.flashGate?.(ev.index)
     if (ev.color === this.myColor && !this._gatePickChoose) {
       this._gatePickOwner = this.myColor
-      this.showGatePicker(this.myColor, (key) => this.room.send('action', { type: 'pickGateRune', key }))
+      this.showGatePicker(this.myColor, (key) => this.send({ type: 'pickGateRune', key }))
     }
     return this.pause(220)
   }
@@ -584,20 +713,22 @@ export class NetLudoScene extends UIScene {
   }
 
   showGameOver(ev) {
+    if (this._resultShown || !ev.winner) return
+    this._resultShown = true
     this.gameOver = true
     clearReconnect()
     const won = ev.winner === this.myColor
     const layer = this.add.container(0, 0).setDepth(200)
-    layer.add(this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.72))
-    this.makeRoundedRectTexture('net-vic', 460, 300, 0x2a1f52, 0x140d2c, 26, COLOR_HEX[ev.winner])
-    const card = this.add.container(W / 2, H / 2, [this.add.image(0, 0, 'net-vic')])
+    layer.add(this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.82).setInteractive())
+    this.makeRoundedRectTexture(`net-vic-${ev.winner}`, 460, 300, 0x21364c, 0x101e31, 26, COLOR_HEX[ev.winner])
+    const card = this.add.container(W / 2, H / 2, [this.add.image(0, 0, `net-vic-${ev.winner}`)])
     card.add(this.add.text(0, -84, won ? t('victory.youWin') : t('victory.defeat'), {
       fontFamily: 'Verdana, sans-serif', fontSize: 40, color: '#fff', fontStyle: 'bold',
     }).setOrigin(0.5))
     card.add(this.add.text(0, -30, t('victory.allHome', { color: t(`color.${ev.winner}`) }), {
       fontFamily: 'Verdana, sans-serif', fontSize: 13, color: '#c9b8ff',
     }).setOrigin(0.5))
-    this.makeRoundedRectTexture('net-vic-btn', 200, 56, 0x34c759, 0x1f9d43, 15, 0x9affc0)
+    this.makeRoundedRectTexture('net-vic-btn', 200, 56, 0x22c48d, 0x10ad85, 15, 0x64dfad)
     card.add(this.add.image(0, 74, 'net-vic-btn'))
     card.add(this.add.text(0, 74, t('victory.home'), {
       fontFamily: 'Verdana, sans-serif', fontSize: 18, color: '#08240f', fontStyle: 'bold',
@@ -605,7 +736,7 @@ export class NetLudoScene extends UIScene {
     layer.add(card)
     this.makeHitZone(W / 2, H / 2 + 74, 200, 56).setDepth(210).on('pointerup', () => { sfx.tap(); this.goTo('Home') })
     card.setScale(0.8).setAlpha(0)
-    this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 320, ease: 'Back.easeOut' })
+    this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: dur(240), ease: EASE.out })
   }
 }
 

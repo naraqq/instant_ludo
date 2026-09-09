@@ -30,8 +30,9 @@ export const BoardViewMixin = {
 
   // Top strip: leave button on the left, coin count on the right.
   createTopBar() {
+    this._confirmLeave = false
     const y = 46
-    this.makeRoundedRectTexture('topbtn', 50, 50, 0x3b2c78, 0x2a1e5c, 15, 0x6a58b8)
+    this.makeRoundedRectTexture('topbtn', 50, 50, 0x243c54, 0x172b40, 15, 0x46647c)
     const back = this.add.image(44, y, 'topbtn').setDepth(6).setAlpha(0.96)
     this.add.text(44, y - 1, '‹', {
       fontFamily: 'Verdana, sans-serif', fontSize: 26, color: '#ffffff', fontStyle: 'bold',
@@ -51,7 +52,7 @@ export const BoardViewMixin = {
       this.time.delayedCall(2500, () => { this._confirmLeave = false })
     })
 
-    this.makeRoundedRectTexture('coin-pill', 132, 46, 0x2a1e5c, 0x211748, 23, 0x6a58b8)
+    this.makeRoundedRectTexture('coin-pill', 132, 46, 0x172b40, 0x142438, 23, 0x46647c)
     const pillX = W - 44 - 66
     this.add.image(pillX, y, 'coin-pill').setDepth(6).setAlpha(0.96)
     this.add.circle(pillX - 42, y, 14, 0xffcf3f).setStrokeStyle(2, 0xffe9a3).setDepth(7)
@@ -198,7 +199,7 @@ export const BoardViewMixin = {
   },
 
   createBottomBar() {
-    this.makeRoundedRectTexture('bottom-bar', W + 40, 108, 0x271c58, 0x1a1140, 30, 0x4c3d94)
+    this.makeRoundedRectTexture('bottom-bar', W + 40, 108, 0x1d3249, 0x101f32, 30, 0x3d5870)
     this.add.image(W / 2, BAR_Y + 26, 'bottom-bar').setAlpha(0.98).setDepth(38)
     this.add.rectangle(W / 2, BAR_Y - 28, W - 48, 3, 0xffffff, 0.12).setDepth(39)
     this.createPowerButtons()

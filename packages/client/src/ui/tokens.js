@@ -20,7 +20,7 @@ export const FS = {
 export const RAD = { sm: 8, md: 12, lg: 16, xl: 22, pill: 999 }
 
 // motion — a small, opinionated set. Everything animates in one of these.
-export const DUR = { instant: 90, fast: 150, base: 240, slow: 360, entrance: 520 }
+export const DUR = { instant: 90, fast: 150, base: 240, slow: 360, entrance: 360 }
 export const EASE = {
   out: 'Cubic.easeOut',
   inOut: 'Cubic.easeInOut',
@@ -32,14 +32,14 @@ export const EASE = {
 
 // UI chrome palette (player colours stay in board.js)
 export const UI = {
-  surface: 0x271c58,
-  surfaceDeep: 0x1a1140,
-  surfaceRaised: 0x3b2c78,
-  stroke: 0x5545a6,
-  strokeSoft: 0x4c3d94,
-  textHi: '#f3ecff',
-  textMid: '#c6b8ee',
-  textLow: '#9184c6',
+  surface: 0x1d3249,
+  surfaceDeep: 0x101f32,
+  surfaceRaised: 0x243c54,
+  stroke: 0x46647c,
+  strokeSoft: 0x3d5870,
+  textHi: '#f2f7ff',
+  textMid: '#bbcede',
+  textLow: '#8ba6bd',
   accent: 0x34c759,
   gold: '#ffe27a',
 }

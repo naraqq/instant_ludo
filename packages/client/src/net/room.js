@@ -13,7 +13,7 @@ function getClient() {
   return client
 }
 
-function stashReconnect(room) {
+export function stashReconnect(room) {
   try {
     sessionStorage.setItem(RECONNECT_KEY, JSON.stringify({
       token: room.reconnectionToken,
@@ -32,7 +32,8 @@ export async function tryReconnect() {
   if (!URL) return null
   let saved
   try { saved = JSON.parse(sessionStorage.getItem(RECONNECT_KEY) || 'null') } catch { saved = null }
-  if (!saved?.token || Date.now() - saved.at > 90_000) { clearReconnect(); return null }
+  // The server owns the grace period; a long-running tab can have an older token.
+  if (!saved?.token) { clearReconnect(); return null }
   try {
     const room = await getClient().reconnect(saved.token)
     stashReconnect(room)
@@ -45,6 +46,7 @@ export async function tryReconnect() {
 
 function joinOpts(extra) {
   return {
+    eventSnapshots: true,
     ticket: session.ticket || undefined,
     name: session.displayName || 'Guest',
     ...extra,

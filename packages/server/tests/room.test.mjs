@@ -103,7 +103,8 @@ test('a gate rune can be picked after the turn has moved on, and no one else res
   const aColor = room.state.seats.get(a.sessionId).color
   const pawn = room.engine.pawns.find((p) => p.color === aColor && p.id === 0)
   pawn.steps = 5
-  a.send('action', { type: 'roll', value: 3 })
+  room.engine.forcedValue = 3
+  a.send('action', { type: 'roll' })
   await wait(60)
   a.send('action', { type: 'move', pawnId: 0 })
   await wait(80)
@@ -112,7 +113,8 @@ test('a gate rune can be picked after the turn has moved on, and no one else res
   assert.notEqual(currentColor(room.engine), aColor, 'turn has passed to B')
 
   // B rolls a 6 and keeps the turn - B's roll must not touch A's hanging pick
-  b.send('action', { type: 'roll', value: 6 })
+  room.engine.forcedValue = 6
+  b.send('action', { type: 'roll' })
   await wait(60)
   assert.equal(currentColor(room.engine), room.state.seats.get(b.sessionId).color)
   assert.equal(room.engine.phase, 'move')
@@ -142,7 +144,8 @@ test('a winning move ends the match and reports the winner', async () => {
     .filter((p) => p.color === champ)
     .forEach((p, i) => { if (i < 3) { p.finished = true; p.steps = 56 } else p.steps = 55 })
 
-  a.send('action', { type: 'roll', value: 1 }) // value is honoured by the engine
+  room.engine.forcedValue = 1
+  a.send('action', { type: 'roll' })
   await wait(60)
   a.send('action', { type: 'move', pawnId: 3 })
   await wait(120)
@@ -214,4 +217,103 @@ test('a solo room is kept out of quick match', async () => {
 test('an unknown code 404s', async () => {
   const res = await colyseus.http.get('/find/000000').catch((e) => e)
   assert.equal(res.statusCode ?? res.status, 404)
+})
+
+test('remote roll values cannot override the authoritative dice', async () => {
+  const room = await colyseus.createRoom('ludo', { maxPlayers: 2, turnSeconds: 999, botThinkMs: 999999 })
+  const client = await colyseus.connectTo(room, { name: 'Player', eventSnapshots: true })
+  quiet(client)
+  room.startMatch()
+  await wait(40)
+  room.engine.forcedValue = 2
+  let rolled
+  client.onMessage('events', batch => {
+    rolled = batch.events.find(event => event.t === 'rolled') || rolled
+  })
+  client.send('action', { type: 'roll', value: 6 })
+  await wait(100)
+  assert.equal(rolled.raw, 2)
+  await client.leave()
+})
+
+test('private lobby transfers host and reconnecting before start is safe', async () => {
+  const room = await colyseus.createRoom('ludo', { private: true, maxPlayers: 4 })
+  const host = await colyseus.connectTo(room, { name: 'Host' })
+  const friend = await colyseus.connectTo(room, { name: 'Friend' })
+  quiet(host); quiet(friend)
+  assert.doesNotThrow(() => room.onReconnect({ sessionId: friend.sessionId }))
+  await host.leave()
+  await wait(60)
+  assert.equal(room.state.hostId, friend.sessionId)
+  friend.send('start', {})
+  await wait(100)
+  assert.equal(room.state.phase, 'playing')
+  await friend.leave()
+})
+
+test('each event batch keeps its own state when multiple actions share a patch', async () => {
+  const room = await colyseus.createRoom('ludo', { maxPlayers: 2, turnSeconds: 999, botThinkMs: 999999 })
+  const client = await colyseus.connectTo(room, { name: 'Player', eventSnapshots: true })
+  quiet(client)
+  room.startMatch()
+  await wait(70)
+  const batches = []
+  client.onMessage('events', batch => batches.push(batch))
+  room.applyAction({ type: 'roll', value: 6 })
+  room.applyAction({ type: 'move', pawnId: 0 })
+  await wait(100)
+  assert.equal(batches.length, 2)
+  assert.equal(batches[0].game.phase, 'move')
+  assert.equal(batches[0].game.pawns[0].steps, -1)
+  assert.equal(batches[1].game.pawns[0].steps, 0)
+  assert.equal(batches[1].game.phase, 'roll')
+  await client.leave()
+})
+
+test('quick match respects the requested table size', async () => {
+  const duel = await colyseus.sdk.joinOrCreate('ludo', { maxPlayers: 2, lobbyWaitMs: 999999 })
+  const table = await colyseus.sdk.joinOrCreate('ludo', { maxPlayers: 4, lobbyWaitMs: 999999 })
+  quiet(duel); quiet(table)
+  assert.notEqual(duel.roomId, table.roomId)
+  await duel.leave(); await table.leave()
+})
+
+test('older clients still receive the original event array', async () => {
+  const room = await colyseus.createRoom('ludo', { maxPlayers: 2, turnSeconds: 999, botThinkMs: 999999 })
+  const client = await colyseus.connectTo(room, { name: 'Legacy' })
+  const batches = []
+  client.onMessage('events', batch => batches.push(batch))
+  room.startMatch()
+  await wait(100)
+  assert.ok(Array.isArray(batches[0]))
+  assert.equal(batches[0][0].t, 'start')
+  await client.leave()
+})
+
+test('another player leaving does not reset the active turn deadline', async () => {
+  const room = await colyseus.createRoom('ludo', { maxPlayers: 2, turnSeconds: 999 })
+  const active = await colyseus.connectTo(room, { name: 'Active' })
+  const other = await colyseus.connectTo(room, { name: 'Other' })
+  quiet(active); quiet(other)
+  await wait(80)
+  const deadline = room.state.turnDeadline
+  await other.leave()
+  await wait(80)
+  assert.equal(room.state.turnDeadline, deadline)
+  await active.leave()
+})
+
+test('production rooms ignore client-supplied clock overrides', async () => {
+  const previous = process.env.NODE_ENV
+  try {
+    process.env.NODE_ENV = 'production'
+    const room = await colyseus.createRoom('ludo', { botThinkMs: 1, turnSeconds: 999999, lobbyWaitMs: 1 })
+    assert.equal(room.botThinkMs, 900)
+    assert.equal(room.turnSecondsOverride, 0)
+    assert.equal(room.lobbyWaitMs, 12000)
+    await room.disconnect()
+  } finally {
+    if (previous === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = previous
+  }
 })

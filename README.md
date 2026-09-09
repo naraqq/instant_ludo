@@ -28,3 +28,8 @@ packages/
   Env / secrets: `PLAYFAB_TITLE_ID`, `PLAYFAB_SECRET_KEY`.
 - **PlayFab** → config only (Game Manager). Auth, economy, leaderboards, analytics.
 
+
+## Quality checks
+
+Use Node 22 (`.nvmrc`). See [QUALITY.md](QUALITY.md) for the polish changes,
+local multiplayer smoke test, visual previews, and release validation scope.

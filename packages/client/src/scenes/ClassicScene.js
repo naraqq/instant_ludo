@@ -72,7 +72,7 @@ export class ClassicScene extends UIScene {
   }
 
   preload() {
-    this.makeBackgroundTexture('bg-classic', '#35246f', '#4f3a9e')
+    this.makeBackgroundTexture('bg-classic', '#101c30', '#1c3048')
     this.makeDiceTextures()
     this.makeElementalEffectTextures()
     // v2 art: pre-cropped, pre-transparent character + rune sprites

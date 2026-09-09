@@ -116,18 +116,18 @@ test('local hot-seat bar follows the active human', () => {
 test('moveCrossesGate flags a move that walks through a gate', () => {
   const s = scene()
   // blue's first gate is the seam before track index 7, i.e. blue step 7
-  assert.equal(s.moveCrossesGate('blue', 4, 9), true, 'walked through')
-  assert.equal(s.moveCrossesGate('blue', 4, 7), true, 'stepped onto the far square')
-  assert.equal(s.moveCrossesGate('blue', 4, 6), false, 'stopped on the near side')
-  assert.equal(s.moveCrossesGate('blue', 8, 12), false, 'already past it')
-  assert.equal(s.moveCrossesGate('blue', 0, 5), false, 'not there yet')
+  assert.equal(s.moveCrossesGate('blue', 4, 9), 7, 'walked through')
+  assert.equal(s.moveCrossesGate('blue', 4, 7), 7, 'stepped onto the far square')
+  assert.equal(s.moveCrossesGate('blue', 4, 6), null, 'stopped on the near side')
+  assert.equal(s.moveCrossesGate('blue', 8, 12), null, 'already past it')
+  assert.equal(s.moveCrossesGate('blue', 0, 5), null, 'not there yet')
   // leaving the yard (from -1 to 0) never touches a gate
-  assert.equal(s.moveCrossesGate('blue', -1, 0), false)
+  assert.equal(s.moveCrossesGate('blue', -1, 0), null)
   // home-lane steps (>= 51) carry no gates
-  assert.equal(s.moveCrossesGate('blue', 50, 56), false)
+  assert.equal(s.moveCrossesGate('blue', 50, 56), null)
   // red is offset by its start index; global gate 20 == red step 7
-  assert.equal(s.moveCrossesGate('red', 4, 9), true)
-  assert.equal(s.moveCrossesGate('red', 4, 6), false)
+  assert.equal(s.moveCrossesGate('red', 4, 9), 20)
+  assert.equal(s.moveCrossesGate('red', 4, 6), null)
 })
 
 test('applyGateRune adds the chosen storable power to the inventory', () => {
@@ -163,7 +163,7 @@ test('landing on a "+1" rune grants an extra roll and respawns it', () => {
 
 test('resolveGatePass does nothing when the move missed every gate', () => {
   const s = scene()
-  s._gatePass = false
+  s._gatePass = null
   s.showGatePicker = () => assert.fail('no picker without a gate')
   s.resolveGatePass({ color: 'blue' })
   assert.ok(true)
@@ -172,20 +172,20 @@ test('resolveGatePass does nothing when the move missed every gate', () => {
 test('a bot picks a gate rune at once, without a picker', () => {
   const s = scene()
   s.currentPlayer = 1
-  s._gatePass = true
+  s._gatePass = 7
   s.pickGateRuneForBot = () => 'earth'
   const grants = []
   s.animateGateGrant = (color, key) => grants.push({ color, key })
   s.showGatePicker = () => assert.fail('bots never see the picker')
   s.resolveGatePass({ color: 'red' })
-  assert.equal(s._gatePass, false)
+  assert.equal(s._gatePass, null)
   assert.deepEqual(grants, [{ color: 'red', key: 'earth' }])
   assert.equal(s.powerInventory.red.earth, 1)
 })
 
 test('a human gets the floating picker; the pick applies when they choose', () => {
   const s = scene()
-  s._gatePass = true
+  s._gatePass = 7
   s.animateGateGrant = () => {}
   let opened
   s.showGatePicker = (color, onPick) => { opened = { color, onPick } }
@@ -199,7 +199,7 @@ test('a human gets the floating picker; the pick applies when they choose', () =
 
 test('a hanging pick is auto-resolved at random when the owner rolls on', () => {
   const s = scene()
-  s._gatePass = true
+  s._gatePass = 7
   s.animateGateGrant = () => {}
   let onPick
   s.showGatePicker = (color, cb) => { onPick = cb; s._gatePickChoose = key => cb(key) }
@@ -433,4 +433,80 @@ test('pawn journey resolves only after its final landing settles', () => {
   assert.equal(token.y, 0)
   assert.equal(token.angle, 0)
   assert.equal(token.scaleX, 1)
+})
+
+// Network state is exercised without a socket or renderer, using the actual scene.
+stubs['/net/room.js'] = Object.fromEntries([
+  'joinMatch', 'soloMatch', 'createRoom', 'joinByCode', 'tryReconnect', 'clearReconnect', 'stashReconnect',
+].map(name => [name, () => {}]))
+const netModule = await compile(new URL('../src/scenes/NetLudoScene.js', import.meta.url))
+await netModule.link(linker)
+await netModule.evaluate()
+const { NetLudoScene } = netModule.namespace
+
+test('online join tolerates a room before its first schema arrives', () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s.room = { state: {} }
+  assert.doesNotThrow(() => s.onStateChange())
+  assert.equal(s.g, null)
+})
+
+test('a new online match clears animation locks and old render references', () => {
+  const s = new NetLudoScene()
+  s.init({})
+  const run = s._run
+  s._animating = true
+  s.pawnViews.set({}, {})
+  s.bonusRuneViews.set(7, {})
+  s.header = {}
+  s._gatePickChoose = () => {}
+  s.init({})
+  assert.equal(s._run, run + 1)
+  assert.equal(s._animating, false)
+  assert.equal(s.pawnViews.size, 0)
+  assert.equal(s.bonusRuneViews.size, 0)
+  assert.equal(s.header, null)
+  assert.equal(s._gatePickChoose, null)
+})
+
+test('opponent water power never changes the local selected dice value', async () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s.myColor = 'blue'
+  s.forcedDiceValue = 2
+  s.pause = async () => {}
+  s.playPowerEffect = () => {}
+  await s.playPowerUsed({ color: 'green', key: 'water', value: 6 })
+  assert.equal(s.forcedDiceValue, 2)
+})
+
+test('online inputs stop while disconnected; gate choices can be out of turn', () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s.myColor = 'blue'
+  s.g = { colors: ['blue', 'green'], current: 1 }
+  const sent = []
+  s.room = { send: (...args) => sent.push(args) }
+  s.send({ type: 'roll' })
+  assert.equal(sent.length, 0)
+  s._connected = true
+  s.send({ type: 'roll' })
+  assert.equal(sent.length, 0)
+  s.send({ type: 'pickGateRune', key: 'earth' })
+  assert.equal(sent.length, 1)
+})
+
+test('queued event batches play against their matching authoritative state', async () => {
+  const s = new NetLudoScene()
+  s.init({})
+  s.g = { turn: 0 }
+  const seen = []
+  s.playEvents = async () => { seen.push(s.g.turn) }
+  s.onStateChange = () => {}
+  s.enqueue({ events: [], game: { turn: 1 } })
+  s.enqueue({ events: [], game: { turn: 2 } })
+  await s._queue
+  assert.deepEqual(seen, [1, 2])
+  assert.equal(s._pendingBatches, 0)
 })

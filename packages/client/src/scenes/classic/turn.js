@@ -265,11 +265,11 @@ export const TurnMixin = {
     const cardW = 520
     const cardH = 616
     const layer = this.add.container(0, 0).setDepth(200)
-    layer.add(this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.74))
+    layer.add(this.add.rectangle(W / 2, H / 2, W, H, 0x05060f, 0.82).setInteractive())
     layer.add(this.add.zone(W / 2, H / 2, W, H).setInteractive())
 
-    this.makeRoundedRectTexture('victory-card', cardW, cardH, 0x2a1f52, 0x140d2c, 28, COLOR_HEX[winner])
-    const card = this.add.container(W / 2, H / 2, [this.add.image(0, 0, 'victory-card').setAlpha(0.98)])
+    this.makeRoundedRectTexture(`victory-card-${winner}`, cardW, cardH, 0x21364c, 0x101e31, 28, COLOR_HEX[winner])
+    const card = this.add.container(W / 2, H / 2, [this.add.image(0, 0, `victory-card-${winner}`).setAlpha(0.98)])
 
     const winColor = t(`color.${winner}`)
     const heading = youWon ? t('victory.youWin') : this.youColor ? t('victory.defeat') : t('victory.colorWins', { color: winColor })
@@ -281,7 +281,7 @@ export const TurnMixin = {
     }).setOrigin(0.5))
 
     const medals = [t('victory.place1'), t('victory.place2'), t('victory.place3'), t('victory.place4')]
-    this.makeRoundedRectTexture('victory-row', cardW - 72, 50, 0x392b6b, 0x2a1f52, 12)
+    this.makeRoundedRectTexture('victory-row', cardW - 72, 50, 0x2b435a, 0x21364c, 12)
     const rows = []
     ranking.forEach((color, i) => {
       const row = this.add.container(0, -cardH / 2 + 168 + i * 60)
@@ -345,8 +345,8 @@ export const TurnMixin = {
     }
 
     const by = cardH / 2 - 68
-    this.makeRoundedRectTexture('victory-btn-primary', 214, 62, 0x34c759, 0x1f9d43, 16, 0x9affc0)
-    this.makeRoundedRectTexture('victory-btn-ghost', 214, 62, 0x3a2c66, 0x2a2050, 16, 0x6a5aa8)
+    this.makeRoundedRectTexture('victory-btn-primary', 214, 62, 0x22c48d, 0x10ad85, 16, 0x64dfad)
+    this.makeRoundedRectTexture('victory-btn-ghost', 214, 62, 0x243c54, 0x172b40, 16, 0x48647a)
     const rematch = this.add.container(-116, by, [
       this.add.image(0, 0, 'victory-btn-primary'),
       this.add.text(0, 0, t('victory.rematch'), { fontFamily: 'Verdana, sans-serif', fontSize: 19, color: '#08240f', fontStyle: 'bold' }).setOrigin(0.5),

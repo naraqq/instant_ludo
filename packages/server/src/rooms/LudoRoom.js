@@ -27,17 +27,18 @@ export class LudoRoom extends Room {
 
   async onCreate(options) {
     this.difficulty = options?.difficulty || 'normal'
-    this.maxClients = Math.min(4, Math.max(2, Number(options?.maxPlayers) || 2))
+    this.maxClients = Math.min(4, Math.max(2, Math.floor(Number(options?.maxPlayers) || 2)))
     this.state.maxSeats = this.maxClients
     this.private = Boolean(options?.private)
     // solo test mode: one human + bots, starts the instant the player joins and
     // is kept out of quick-match so nobody else can drop in.
     this.solo = Boolean(options?.solo)
     if (this.solo) this.setPrivate(true)
-    // test hooks - production leaves these at the defaults above / in the engine
-    this.botThinkMs = Number(options?.botThinkMs) || BOT_THINK_MS
-    this.turnSecondsOverride = Number(options?.turnSeconds) || 0
-    this.lobbyWaitMs = Number(options?.lobbyWaitMs) || LOBBY_WAIT_MS
+    // Test timing overrides must never be controlled by production clients.
+    const timing = process.env.NODE_ENV === 'production' ? {} : options
+    this.botThinkMs = Number(timing?.botThinkMs) || BOT_THINK_MS
+    this.turnSecondsOverride = Number(timing?.turnSeconds) || 0
+    this.lobbyWaitMs = Number(timing?.lobbyWaitMs) || LOBBY_WAIT_MS
     this.engine = null
     this.autoDispose = true
 
@@ -82,6 +83,7 @@ export class LudoRoom extends Room {
   }
 
   onJoin(client, options, auth) {
+    client.userData = { eventSnapshots: options?.eventSnapshots === true }
     const seat = new Seat()
     seat.name = auth?.name || 'Guest'
     seat.playFabId = auth?.playFabId || ''
@@ -106,22 +108,27 @@ export class LudoRoom extends Room {
   onDrop(client) {
     const seat = this.state.seats.get(client.sessionId)
     if (seat) seat.connected = false
-    this.armClock() // a bot covers the seat while it's gone
+    if (this.engine && seat?.color === currentColor(this.engine)) this.armClock() // cover only the dropped turn
     this.allowReconnection(client, RECONNECT_SECONDS).catch(() => {})
   }
 
   onReconnect(client) {
     const seat = this.state.seats.get(client.sessionId)
     if (seat) seat.connected = true
-    this.syncState([]) // full state to the returning client
-    this.armClock()
+    if (this.engine) this.syncState([]) // lobby reconnections have no engine yet
+    if (this.engine && seat?.color === currentColor(this.engine)) this.armClock()
   }
 
   onLeave(client) {
     const seat = this.state.seats.get(client.sessionId)
     if (seat) seat.connected = false
-    if (!this.engine) this.state.seats.delete(client.sessionId)
-    this.armClock()
+    if (!this.engine) {
+      this.state.seats.delete(client.sessionId)
+      if (this.state.hostId === client.sessionId) {
+        this.state.hostId = [...this.state.seats.keys()][0] || ''
+      }
+    }
+    if (this.engine && seat?.color === currentColor(this.engine)) this.armClock()
   }
 
   onDispose() {
@@ -167,6 +174,8 @@ export class LudoRoom extends Room {
   }
 
   async endMatch() {
+    if (this._ending) return
+    this._ending = true
     this.turnTimer?.clear()
     this.syncState([])
     try {
@@ -200,7 +209,8 @@ export class LudoRoom extends Room {
       client.send('rejected', { error: 'not your turn' })
       return
     }
-    const result = this.applyAction(action)
+    // Explicit dice values belong to deterministic engine tests, never remote players.
+    const result = this.applyAction(action?.type === 'roll' ? { type: 'roll' } : action)
     if (result?.error) client.send('rejected', { error: result.error })
   }
 
@@ -218,7 +228,13 @@ export class LudoRoom extends Room {
     this.state.phase = over ? 'gameover' : 'playing'
     this.state.currentColor = over ? '' : currentColor(this.engine)
     this.state.gameJson = JSON.stringify(publicView(this.engine))
-    if (events && events.length) this.broadcast('events', events)
+    if (events && events.length) {
+      // Keep installed clients working while the web client rolls out.
+      const modern = this.clients.filter(client => client.userData?.eventSnapshots)
+      const legacy = this.clients.filter(client => !client.userData?.eventSnapshots)
+      if (modern.length) this.broadcast('events', { events, game: publicView(this.engine) }, { afterNextPatch: true, except: legacy })
+      if (legacy.length) this.broadcast('events', events, { afterNextPatch: true, except: modern })
+    }
   }
 
   armClock() {

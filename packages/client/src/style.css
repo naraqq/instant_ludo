@@ -29,3 +29,40 @@ canvas {
   display: block;
   margin: 0 auto;
 }
+
+body { background: radial-gradient(ellipse at 50% 35%, #1d354b, #080f1c 70%); }
+#app { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
+canvas { -webkit-tap-highlight-color: transparent; }
+.input-overlay {
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center;
+  padding: 24px; background: #040b18cc; backdrop-filter: blur(12px);
+  touch-action: auto; font-family: system-ui, sans-serif;
+}
+.input-card {
+  position: relative; box-sizing: border-box; width: min(100%, 380px);
+  padding: 36px 24px 24px; border: 1px solid #405771; border-radius: 24px;
+  background: linear-gradient(155deg, #22364d, #101e31); color: #f2f7ff;
+  box-shadow: 0 24px 80px #0008; animation: input-enter 180ms ease-out;
+}
+.input-card::before {
+  content: ''; position: absolute; top: 0; left: 25%; right: 25%; height: 3px;
+  background: linear-gradient(90deg, #ff765f 25%, #69bdff 25% 50%, #58d5a2 50% 75%, #ffd679 75%);
+}
+.input-card h2 { margin: 0 26px 24px 0; font-size: 22px; letter-spacing: -.5px; }
+.input-card input {
+  box-sizing: border-box; width: 100%; border: 1px solid #49627b; border-radius: 12px;
+  padding: 16px; font: inherit; font-size: 20px; background: #0b182b; color: white;
+  user-select: text; touch-action: auto;
+}
+.input-card input[inputmode=numeric] { text-align: center; letter-spacing: .25em; font-variant-numeric: tabular-nums; }
+.input-card button {
+  width: 100%; min-height: 48px; border: 0; border-radius: 12px; cursor: pointer;
+  color: #062c29; background: #62e5ba; font: 700 16px system-ui; transition: transform 110ms;
+}
+.input-card button:active { transform: scale(.97); }
+.input-card button:disabled { opacity: .5; cursor: wait; }
+.input-card .input-close { position: absolute; top: 10px; right: 10px; width: 44px; min-height: 44px; background: transparent; color: #b9cee1; font-size: 28px; }
+.input-card :focus-visible { outline: 3px solid #79c7ff; outline-offset: 3px; }
+.input-error { font-size: 13px; color: #ffb8aa; min-height: 18px; margin: 12px 0; }
+@keyframes input-enter { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+@media (prefers-reduced-motion: reduce) { .input-card { animation: none; } .input-card button { transition: none; } }

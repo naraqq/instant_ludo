@@ -193,17 +193,21 @@ export const PowersMixin = {
 
     const panel = this.add.container(W / 2, panelY)
     overlay.add(panel)
-    this.makeRoundedRectTexture('ctrl-panel', panelW, panelH, 0x352a72, 0x1a1145, 28, 0x9b8ae6)
+    this.makeRoundedRectTexture('ctrl-panel', panelW, panelH, 0x21394f, 0x102237, 28, 0x65859b)
     panel.add(this.add.image(0, 0, 'ctrl-panel').setAlpha(0.99))
     // taps on the panel body (not a die) are swallowed so they don't close it
     overlay.add(this.add.zone(W / 2, panelY, panelW, panelH).setInteractive())
 
-    this.makeRoundedRectTexture('ctrl-die-tile', tile, tile, 0x4a3f92, 0x322a68, 18, 0x7a68c8)
-    this.makeRoundedRectTexture('ctrl-die-tile-hot', tile, tile, 0x6b5cc4, 0x4a3f92, 18, 0xd7ccff)
+    this.makeRoundedRectTexture('ctrl-die-tile', tile, tile, 0x2b4860, 0x1c334b, 18, 0x4d728d)
+    this.makeRoundedRectTexture('ctrl-die-tile-hot', tile, tile, 0x3e708b, 0x2b4860, 18, 0x9cdfec)
 
     const pick = (value) => {
       if (this.controllerPicker !== overlay) return
-      inventory.water--
+      if (!this.room) inventory.water--
+      if (this.room && (!this._connected || this.currentColor !== color || this.phase !== 'roll')) {
+        this.closeControllerPicker()
+        return
+      }
       this.forcedDiceValue = value
       this.controllerPicker = null
       this.flashPower('water')
@@ -569,7 +573,7 @@ export const PowersMixin = {
     const panel = this.add.container(W / 2, panelY)
     overlay.add(panel)
     this._gatePickerPanel = panel
-    this.makeRoundedRectTexture('gate-panel', panelW, panelH, 0x352a72, 0x1a1145, 28, 0x9b8ae6)
+    this.makeRoundedRectTexture('gate-panel', panelW, panelH, 0x21394f, 0x102237, 28, 0x65859b)
     panel.add(this.add.image(0, 0, 'gate-panel').setAlpha(0.99))
     panel.add(this.add.text(0, -panelH / 2 + 34, t('classic.gateTitle'), {
       fontFamily: 'Verdana, sans-serif', fontSize: 17, color: '#efe8ff', fontStyle: 'bold',
@@ -577,8 +581,8 @@ export const PowersMixin = {
     // swallow taps on the panel body; there is no cancel - a pick is mandatory
     overlay.add(this.add.zone(W / 2, panelY, panelW, panelH).setInteractive())
 
-    this.makeRoundedRectTexture('gate-tile', tileW, tileH, 0x4a3f92, 0x322a68, 18, 0x7a68c8)
-    this.makeRoundedRectTexture('gate-tile-hot', tileW, tileH, 0x6b5cc4, 0x4a3f92, 18, 0xd7ccff)
+    this.makeRoundedRectTexture('gate-tile', tileW, tileH, 0x2b4860, 0x1c334b, 18, 0x4d728d)
+    this.makeRoundedRectTexture('gate-tile-hot', tileW, tileH, 0x3e708b, 0x2b4860, 18, 0x9cdfec)
 
     let done = false
     const choose = (key) => {

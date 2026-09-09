@@ -14,7 +14,7 @@ function cors(req, res, next) {
 
 export default defineServer({
   rooms: {
-    ludo: defineRoom(LudoRoom),
+    ludo: defineRoom(LudoRoom).filterBy(['maxPlayers']),
   },
 
   express: (app) => {
