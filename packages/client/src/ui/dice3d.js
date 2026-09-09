@@ -113,13 +113,18 @@ export function drawDice(graphics, pose) {
 // A clear, face-on result at rest, using the same graphics object as the tumble.
 export function drawRestingDice(graphics, value) {
   graphics.clear()
-  graphics.fillStyle(0x000000, .18).fillRoundedRect(-28, -25, 56, 56, 10)
-  graphics.fillStyle(0xffffff, 1).fillRoundedRect(-28, -28, 56, 56, 10)
-  graphics.lineStyle(1, 0xdde2eb, 1).strokeRoundedRect(-28, -28, 56, 56, 10)
+  // soft drop shadow
+  graphics.fillStyle(0x0a1020, .3).fillRoundedRect(-26, -21, 52, 54, 12)
+  // body, lit from the top-left
+  graphics.fillGradientStyle(0xffffff, 0xf4f6fb, 0xe4e8f2, 0xd7dceb, 1)
+    .fillRoundedRect(-26, -26, 52, 52, 12)
+  graphics.fillStyle(0xffffff, .5).fillRoundedRect(-22, -22, 44, 16, 8)
+  graphics.lineStyle(1.5, 0xc7cfdd, 1).strokeRoundedRect(-26, -26, 52, 52, 12)
   // Six pips get a touch less room, so shrink them a hair.
   const r = value >= 5 ? 5.4 : 6.1
   for (const [u, v] of PIPS[value]) {
-    graphics.fillStyle(0x000000, .13).fillCircle(u * 28 + 0.6, v * 28 + 0.9, r + 0.5)
-    graphics.fillStyle(0x0d1019, 1).fillCircle(u * 28, v * 28, r)
+    graphics.fillStyle(0x000000, .14).fillCircle(u * 26 + 0.8, v * 26 + 1.1, r + 0.6)
+    graphics.fillStyle(0x1b2436, 1).fillCircle(u * 26, v * 26, r)
+    graphics.fillStyle(0xffffff, .22).fillCircle(u * 26 - r * .33, v * 26 - r * .33, r * .34)
   }
 }

@@ -82,12 +82,9 @@ export class ClassicScene extends UIScene {
     })
     POWER_TYPES.forEach((type) => this.load.image(`rune-${type}`, `assets/sprites/rune-${type}.png`))
     // power-*: the fire/water/earth power icons (double / control / shield),
-    // shown on the bottom bar and in the gate picker.
+    // shown on the bottom bar, in the gate picker and dropping from a gate.
     ;['fire', 'water', 'earth'].forEach((type) =>
       this.load.image(`power-${type}`, `assets/sprites/power-${type}.png`))
-    // gateline-*: pillars + energy barrier, drawn across a track seam.
-    POWER_TYPES.forEach((type) =>
-      this.load.image(`gateline-${type}`, `assets/sprites/gateline-${type}.png`))
     // the "+1" bonus-roll rune, scattered on the board
     this.load.image('rune-bonus', 'assets/sprites/rune-bonus.png')
   }

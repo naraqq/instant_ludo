@@ -8,7 +8,7 @@ import { sfx } from '../../audio.js'
 import { t } from '../../i18n.js'
 import { drawRestingDice } from '../../ui/dice3d.js'
 import { COLOR_HEX, GATE_INDEXES, SAFE_STOPS, START_INDEX, TRACK } from '@ludo/engine'
-import { BAR_Y, POD_R, POWER_SLOT_KEYS } from './constants.js'
+import { BAR_Y, POD_R, POWER_SLOT_KEYS, TILE } from './constants.js'
 
 // The runes offered at a gate - the three storable powers. 'air' (an extra
 // roll) is no longer here; it lives on the board as the "+1" bonus rune.
@@ -317,33 +317,45 @@ export const PowersMixin = {
 
   // ---------- power gates ----------
 
+  // A gate is a crisp energy line across a track seam with a glowing node at
+  // each end - you walk THROUGH it to pick a rune, you never stop on it.
   createGates() {
-    // A gate is a two-pillar energy barrier drawn across the seam between two
-    // track squares - you walk THROUGH it, you never stop on it. The barrier art
-    // is decoration only; passing any gate offers the same three runes.
     const artFor = ['fire', 'water', 'earth', 'air']
+    const TINT = { fire: 0xff5c28, water: 0x3fb6ff, earth: 0x57cf6a, air: 0xffcf3f }
     this.gates = GATE_INDEXES.map((index, i) => {
       const element = artFor[i % artFor.length]
+      const tint = TINT[element]
       const before = this.getTrackPixel((index - 1 + TRACK.length) % TRACK.length)
       const after = this.getTrackPixel(index)
       const x = (before.x + after.x) / 2
       const y = (before.y + after.y) / 2
-      // the barrier art runs pillar-to-pillar left-to-right; rotate it so the
-      // pillars sit either side of the lane the pawn actually travels down.
-      const travelsHorizontally = Math.abs(after.x - before.x) > Math.abs(after.y - before.y)
+      const horiz = Math.abs(after.x - before.x) > Math.abs(after.y - before.y)
+      const half = TILE * 0.6
       const c = this.add.container(x, y).setDepth(17)
-      const bar = this.add.image(0, 0, `gateline-${element}`).setScale(0.17).setAlpha(0.95)
-      if (travelsHorizontally) bar.setAngle(90)
-      c.add(bar)
+      const field = this.add.rectangle(0, 0, horiz ? 12 : half * 2, horiz ? half * 2 : 12, tint, 0.16)
+      field.name = 'field'
+      const beam = this.add.rectangle(0, 0, horiz ? 3.5 : half * 2, horiz ? half * 2 : 3.5, tint, 0.95)
+      beam.name = 'beam'
+      c.add([field, beam])
+      for (const s of [-1, 1]) {
+        const node = this.add.circle(horiz ? 0 : s * half, horiz ? s * half : 0, 5.5, tint)
+          .setStrokeStyle(2, 0xffffff, 0.75)
+        c.add(node)
+      }
       if (!prefersReducedMotion) {
         this.tweens.add({
-          targets: bar, alpha: { from: 0.8, to: 1 },
-          duration: 1000, yoyo: true, repeat: -1, ease: EASE.breathe,
+          targets: field, alpha: { from: 0.12, to: 0.28 },
+          duration: 1100, yoyo: true, repeat: -1, ease: EASE.breathe,
         })
       }
       this.gateViews.push(c)
-      return { index, element }
+      return { index, element, tint, x, y }
     })
+  },
+
+  gatePos(index) {
+    const g = this.gates?.find((x) => x.index === index)
+    return g ? { x: g.x, y: g.y } : null
   },
 
   // ---------- "+1" bonus-roll runes (scattered on the track) ----------
@@ -434,26 +446,32 @@ export const PowersMixin = {
     return null
   },
 
-  // A bright pulse across a gate arch as a pawn walks through it.
+  // A bright surge across the gate as a pawn walks through it.
   flashGate(index) {
     const i = this.gates?.findIndex((g) => g.index === index)
     if (i == null || i < 0) return
     const c = this.gateViews[i]
+    const g = this.gates[i]
     if (!c) return
-    const bar = c.list?.[0]
-    const { x, y } = c
-    const tint = { fire: 0xff5c28, water: 0x4dc9ff, earth: 0x8fd86a, air: 0xffd54d }[this.gates[i].element] ?? 0xffffff
+    const { x, y, tint } = g
     sfx.rune?.()
-    if (bar && !prefersReducedMotion) {
-      this.tweens.killTweensOf(bar)
-      this.tweens.add({
-        targets: bar, scale: { from: 0.24, to: 0.17 }, alpha: { from: 1, to: 0.95 },
-        duration: dur(420), ease: EASE.out,
-        onComplete: () => {
-          bar.setScale(0.17).setAlpha(0.95)
-          this.tweens.add({ targets: bar, alpha: { from: 0.8, to: 1 }, duration: 1000, yoyo: true, repeat: -1, ease: EASE.breathe })
-        },
+    if (!prefersReducedMotion) {
+      const field = c.getByName('field')
+      const beam = c.getByName('beam')
+      ;[field, beam].forEach((el) => {
+        if (!el) return
+        this.tweens.killTweensOf(el)
+        const a0 = el.alpha
+        el.setAlpha(1)
+        this.tweens.add({
+          targets: el, alpha: a0, duration: dur(520), ease: EASE.out,
+          onComplete: () => {
+            if (el === field) this.tweens.add({ targets: field, alpha: { from: 0.12, to: 0.28 }, duration: 1100, yoyo: true, repeat: -1, ease: EASE.breathe })
+          },
+        })
       })
+      c.setScale(1.18)
+      this.tweens.add({ targets: c, scale: 1, duration: dur(320), ease: EASE.pop })
     }
     for (let k = 0; k < 2; k++) {
       const ring = this.add.circle(x, y, 6, tint, 0).setStrokeStyle(4 - k, tint, 0.9).setDepth(19)
@@ -482,7 +500,7 @@ export const PowersMixin = {
     const color = pawn.color
     this.flashGate(gateIdx)
     const view = this.pawnViews.get(pawn)
-    const at = { x: view?.x ?? W / 2, y: view?.y ?? H / 2 }
+    const at = this.gatePos(gateIdx) || { x: view?.x ?? W / 2, y: view?.y ?? H / 2 }
     const grant = (key) => {
       this.applyGateRune(color, key)
       this.animateGateGrant(color, key, at)
@@ -527,28 +545,33 @@ export const PowersMixin = {
     return 'fire'
   },
 
+  // The chosen rune materialises at the gate, bobs up out of it, then drops and
+  // flies to the power bar.
   animateGateGrant(color, key, at) {
     const ownInventory = color === this.powerBarColor && !this.isBot(color)
     const target = ownInventory ? this.powerButtons?.[key]?.container : this.playerBadges?.[color]
     const flash = () => {
       if (ownInventory && color === this.powerBarColor) this.flashPower(key)
+      this.updatePowerButtons?.()
     }
-    if (prefersReducedMotion || !target) {
-      flash()
-      return
-    }
-    const icon = this.add.image(at.x, at.y - 6, `power-${key}`).setDepth(80)
-    icon.setScale(50 / icon.height)
-    this.popAt(at.x, at.y, COLOR_HEX[color])
-    this.tweens.add({
+    if (prefersReducedMotion || !target) { flash(); return }
+    const tint = { fire: 0xff5c28, water: 0x3fb6ff, earth: 0x57cf6a }[key] ?? COLOR_HEX[color]
+    this.popAt(at.x, at.y, tint)
+    const ring = this.add.circle(at.x, at.y, 6, tint, 0).setStrokeStyle(4, tint, 0.9).setDepth(79)
+    this.tweens.add({ targets: ring, radius: 26, alpha: 0, duration: dur(300), ease: EASE.out, onComplete: () => ring.destroy() })
+    const icon = this.add.image(at.x, at.y, `power-${key}`).setDepth(80).setScale(0).setAlpha(0)
+    const s = 46 / icon.height
+    this.tweens.chain({
       targets: icon,
-      x: target.x,
-      y: target.y,
-      scale: icon.scale * 0.4,
-      alpha: 0,
-      duration: 340,
-      ease: 'Cubic.easeInOut',
-      onComplete: () => { icon.destroy(); flash() },
+      tweens: [
+        { y: at.y - 20, scale: s * 1.15, alpha: 1, duration: dur(220), ease: EASE.pop },
+        { y: at.y - 6, duration: dur(120), ease: 'Sine.easeIn' },
+        {
+          x: target.x, y: target.y, scale: s * 0.32, alpha: 0,
+          duration: dur(360), ease: 'Cubic.easeInOut',
+          onComplete: () => { icon.destroy(); flash() },
+        },
+      ],
     })
   },
 

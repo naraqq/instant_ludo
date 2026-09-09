@@ -99,10 +99,7 @@ export class NetLudoScene extends UIScene {
       this.load.image(`pawn-${color}`, `assets/sprites/pawn-${asset}.png`)
       this.load.image(`pawn-${color}-sm`, `assets/sprites/pawn-${asset}-sm.png`)
     })
-    POWER_TYPES.forEach((type) => {
-      this.load.image(`rune-${type}`, `assets/sprites/rune-${type}.png`)
-      this.load.image(`gateline-${type}`, `assets/sprites/gateline-${type}.png`)
-    })
+    POWER_TYPES.forEach((type) => this.load.image(`rune-${type}`, `assets/sprites/rune-${type}.png`))
     ;['fire', 'water', 'earth'].forEach((k) => this.load.image(`power-${k}`, `assets/sprites/power-${k}.png`))
     this.load.image('rune-bonus', 'assets/sprites/rune-bonus.png')
   }
@@ -640,6 +637,7 @@ export class NetLudoScene extends UIScene {
 
   playGate(ev) {
     this.flashGate?.(ev.index)
+    ;(this._gateIndex ||= {})[ev.color] = ev.index
     if (ev.color === this.myColor && !this._gatePickChoose) {
       this._gatePickOwner = this.myColor
       this.showGatePicker(this.myColor, (key) => this.send({ type: 'pickGateRune', key }))
@@ -650,7 +648,8 @@ export class NetLudoScene extends UIScene {
   playRunePicked(ev) {
     if (this._gatePickChoose) this.closeGatePicker()
     const badge = this.playerBadges?.[ev.color]
-    this.animateGateGrant?.(ev.color, ev.key, { x: badge?.x ?? W / 2, y: badge?.y ?? H / 2 })
+    const from = this.gatePos?.(this._gateIndex?.[ev.color]) || { x: badge?.x ?? W / 2, y: badge?.y ?? H / 2 }
+    this.animateGateGrant?.(ev.color, ev.key, from)
     return this.pause(180)
   }
 
